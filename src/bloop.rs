@@ -243,7 +243,7 @@ impl<R: BloopRepository> ProcessedBloopSink<R> {
 
                 result = self.event_rx.recv() => {
                     self.handle_recv(result).await
-                },
+                }
             };
 
             if !should_continue {

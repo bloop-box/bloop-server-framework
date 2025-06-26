@@ -6,4 +6,6 @@ pub mod event;
 pub mod network;
 pub mod nfc_uid;
 pub mod player;
+#[cfg(feature = "statistics")]
+pub mod statistics;
 pub mod trigger;
