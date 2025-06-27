@@ -14,7 +14,7 @@ use std::sync::Arc;
 use thiserror::Error;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::broadcast::error::RecvError;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{RwLock, broadcast};
 use tokio::{io, select, task};
 #[cfg(feature = "tokio-graceful-shutdown")]
 use tokio_graceful_shutdown::{FutureExt, IntoSubsystem, SubsystemHandle};
@@ -48,7 +48,10 @@ impl Statistics {
     /// If the client ID is new, it will be inserted with an initial count of 1.
     fn increment(&mut self, client_id: &str) {
         self.total_bloops += 1;
-        *self.per_client_bloops.entry(client_id.to_string()).or_default() += 1;
+        *self
+            .per_client_bloops
+            .entry(client_id.to_string())
+            .or_default() += 1;
     }
 }
 
@@ -165,8 +168,7 @@ pub enum NeverError {}
 
 #[cfg(feature = "tokio-graceful-shutdown")]
 #[async_trait]
-impl IntoSubsystem<NeverError> for StatisticsServer
-{
+impl IntoSubsystem<NeverError> for StatisticsServer {
     async fn run(mut self, subsys: SubsystemHandle) -> Result<(), NeverError> {
         let _ = self.listen().cancel_on_shutdown(&subsys).await;
 
@@ -222,8 +224,12 @@ impl StatisticsServerBuilder {
     pub fn build(self) -> Result<StatisticsServer, BuilderError> {
         Ok(StatisticsServer {
             addr: self.addr.ok_or(BuilderError::MissingField("addr"))?,
-            stats: Arc::new(RwLock::new(self.stats.ok_or(BuilderError::MissingField("stats"))?)),
-            event_rx: self.event_rx.ok_or(BuilderError::MissingField("event_rx"))?,
+            stats: Arc::new(RwLock::new(
+                self.stats.ok_or(BuilderError::MissingField("stats"))?,
+            )),
+            event_rx: self
+                .event_rx
+                .ok_or(BuilderError::MissingField("event_rx"))?,
         })
     }
 }

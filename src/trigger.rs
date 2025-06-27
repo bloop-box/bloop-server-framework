@@ -21,11 +21,11 @@ pub enum TriggerOccurrence {
 #[derive(Debug, Copy, Clone, Deserialize)]
 pub struct TriggerSpec<T: Copy + PartialEq + Eq + Debug> {
     /// Whether the trigger is global (affects all clients) or local (per client).
-    global: bool,
+    pub global: bool,
     /// How often or for how long this trigger can be active.
-    occurrence: TriggerOccurrence,
+    pub occurrence: TriggerOccurrence,
     /// The trigger identifier of type `T`.
-    trigger: T,
+    pub trigger: T,
 }
 
 /// Represents an active trigger instance, tracking its usage and activation time.

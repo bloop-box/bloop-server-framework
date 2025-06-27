@@ -34,7 +34,7 @@ async fn main() -> anyhow::Result<()> {
             is_hidden: true,
         },
         "audio.mp3",
-        MinBloopsEvaluator::new(1).into_evaluator(),
+        MinBloopsEvaluator::new(1).wrap(),
     );
     let achievements = vec![achievement];
 

@@ -66,7 +66,7 @@ fn internal_is_fibonacci(number: usize) -> bool {
 ///
 /// Checks if at least `min_required` recent bloops within `max_window` satisfy the given predicate
 /// on player registration numbers.
-pub struct NumberPropertyEvaluator<F>
+pub struct NumberPredicateEvaluator<F>
 where
     F: Fn(usize) -> bool + Send + Sync + 'static,
 {
@@ -80,19 +80,22 @@ where
     max_window: Duration,
 }
 
-impl<F> NumberPropertyEvaluator<F>
+impl<F> NumberPredicateEvaluator<F>
 where
     F: Fn(usize) -> bool + Send + Sync + 'static,
 {
-    /// Creates a new [`NumberPropertyEvaluator`] with the given predicate, count, and window.
+    /// Creates a new [`NumberPredicateEvaluator`] with the given predicate, count, and window.
     ///
     /// # Examples
     ///
     /// ```
     /// use std::time::Duration;
-    /// use bloop_server_framework::evaluator::registration_number::{is_prime, NumberPropertyEvaluator};
+    /// use bloop_server_framework::evaluator::registration_number::{
+    ///     is_prime,
+    ///     NumberPredicateEvaluator,
+    /// };
     ///
-    /// let evaluator = NumberPropertyEvaluator::new(is_prime, 3, Duration::from_secs(60));
+    /// let evaluator = NumberPredicateEvaluator::new(is_prime, 3, Duration::from_secs(60));
     /// ```
     pub fn new(predicate: F, min_required: usize, max_window: Duration) -> Self {
         Self {
@@ -104,21 +107,27 @@ where
 }
 
 impl<Player, Metadata, Trigger, F> SingleEvaluator<Player, Metadata, Trigger>
-    for NumberPropertyEvaluator<F>
+    for NumberPredicateEvaluator<F>
 where
-    Player: RegistrationNumberProvider,
+    Player: RegistrationNumberProvider + Debug,
     Trigger: Copy + PartialEq + Eq + Debug,
     F: Fn(usize) -> bool + Send + Sync + 'static,
 {
     fn evaluate(&self, ctx: &AchievementContext<Player, Metadata, Trigger>) -> bool {
-        ctx.client_bloops()
+        let bloops = ctx
+            .client_bloops()
             .filter(ctx.filter_within_window(self.max_window))
             .take(self.min_required)
+            .collect::<Vec<_>>();
+
+        bloops
+            .iter()
             .all(|bloop| (self.predicate)(bloop.player().registration_number()))
+            && bloops.len() >= self.min_required
     }
 }
 
-impl<F> Debug for NumberPropertyEvaluator<F>
+impl<F> Debug for NumberPredicateEvaluator<F>
 where
     F: Fn(usize) -> bool + Send + Sync + 'static,
 {
@@ -131,43 +140,322 @@ where
     }
 }
 
+pub fn digit_sum(number: usize) -> usize {
+    let mut sum = 0;
+    let mut value = number;
+
+    while value > 0 {
+        sum += value % 10;
+        value /= 10;
+    }
+
+    sum
+}
+
+/// Evaluates whether a number projection of recent players matches that of the
+/// current player.
+///
+/// The [`ProjectionMatchEvaluator`] takes a projection function that
+/// transforms a player's registration number into a comparable value (e.g.,
+/// digit sum, modulo, etc.). It then checks whether at least `min_required`
+/// recent players (within a given time window) have the *same* projected value
+/// as the current player.
+///
+/// This is useful for recognizing players with "numerical affinity", such as
+/// those with the same digit sum, same last digit, or belonging to the same
+/// modulo class.
+///
+/// # Notes
+/// - The projection function must return a value that implements [`PartialEq`].
+/// - Only bloops from the same client (i.e., `client_bloops()`) are considered.
+/// - The comparison starts from the most recent bloop and checks up to
+///   `min_required`.
+/// - The current bloop is used as the reference point for the projected value.
+pub struct ProjectionMatchEvaluator<F, V>
+where
+    F: Fn(usize) -> V + Send + Sync + 'static,
+    V: PartialEq,
+{
+    /// Closure or function to project a player's registration number.
+    projector: F,
+
+    /// Minimum number of bloops that must pass the test.
+    min_required: usize,
+
+    /// Time window in which to evaluate recent bloops, counting backward from the
+    /// current one.
+    max_window: Duration,
+}
+
+impl<F, V> ProjectionMatchEvaluator<F, V>
+where
+    F: Fn(usize) -> V + Send + Sync + 'static,
+    V: PartialEq,
+{
+    /// Creates a new [`ProjectionMatchEvaluator`] with the given projector, count,
+    /// and window.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage with a digit sum comparison:
+    ///
+    /// ```
+    /// use std::time::Duration;
+    /// use bloop_server_framework::evaluator::registration_number::{
+    ///     digit_sum,
+    ///     ProjectionMatchEvaluator,
+    /// };
+    ///
+    /// let evaluator = ProjectionMatchEvaluator::new(
+    ///     digit_sum,
+    ///     3,
+    ///     Duration::from_secs(60),
+    /// );
+    /// ```
+    ///
+    /// Custom projection based on the last digit:
+    ///
+    /// ```
+    /// use std::time::Duration;
+    /// use bloop_server_framework::evaluator::{
+    ///     registration_number::ProjectionMatchEvaluator
+    /// };
+    ///
+    /// let evaluator = ProjectionMatchEvaluator::new(
+    ///     |n| n % 10,
+    ///     2,
+    ///     Duration::from_secs(30),
+    /// );
+    /// ```
+    pub fn new(projector: F, min_required: usize, max_window: Duration) -> Self {
+        Self {
+            projector,
+            min_required,
+            max_window,
+        }
+    }
+}
+
+impl<F, V> Debug for ProjectionMatchEvaluator<F, V>
+where
+    F: Fn(usize) -> V + Send + Sync + 'static,
+    V: PartialEq,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProjectionMatchEvaluator")
+            .field("projector", &"<closure>")
+            .field("min_required", &self.min_required)
+            .field("max_window", &self.max_window)
+            .finish()
+    }
+}
+
+impl<Player, Metadata, Trigger, F, V> SingleEvaluator<Player, Metadata, Trigger>
+    for ProjectionMatchEvaluator<F, V>
+where
+    Player: RegistrationNumberProvider,
+    Trigger: Copy + PartialEq + Eq + Debug,
+    F: Fn(usize) -> V + Send + Sync + 'static,
+    V: PartialEq,
+{
+    fn evaluate(&self, ctx: &AchievementContext<Player, Metadata, Trigger>) -> bool {
+        let reference = (self.projector)(ctx.current_bloop.player().registration_number());
+
+        let bloops = ctx
+            .client_bloops()
+            .filter(ctx.filter_within_window(self.max_window))
+            .take(self.min_required)
+            .collect::<Vec<_>>();
+
+        bloops
+            .iter()
+            .all(|bloop| (self.projector)(bloop.player().registration_number()) == reference)
+            && bloops.len() >= self.min_required
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use crate::bloop::Bloop;
+    use crate::evaluator::SingleEvaluator;
     use crate::evaluator::registration_number::{
-        internal_is_fibonacci_no_cache, internal_is_prime_no_cache,
+        ProjectionMatchEvaluator, NumberPredicateEvaluator, digit_sum,
+        internal_is_fibonacci_no_cache, internal_is_perfect_square_no_cache,
+        internal_is_prime_no_cache,
     };
+    use crate::evaluator::test_utils::{MockPlayer, TestCtxBuilder};
+    use chrono::{DateTime, Utc};
+    use std::time::{Duration, SystemTime};
 
-    #[test]
-    fn fibonacci_test_works_correctly() {
-        assert!(internal_is_fibonacci_no_cache(1));
-        assert!(internal_is_fibonacci_no_cache(2));
-        assert!(internal_is_fibonacci_no_cache(3));
-        assert!(!internal_is_fibonacci_no_cache(4));
-        assert!(internal_is_fibonacci_no_cache(5));
-        assert!(!internal_is_fibonacci_no_cache(6));
-        assert!(!internal_is_fibonacci_no_cache(7));
-        assert!(internal_is_fibonacci_no_cache(8));
-        assert!(!internal_is_fibonacci_no_cache(9));
-        assert!(!internal_is_fibonacci_no_cache(10));
-        assert!(!internal_is_fibonacci_no_cache(11));
-        assert!(!internal_is_fibonacci_no_cache(12));
-        assert!(internal_is_fibonacci_no_cache(13));
+    fn make_bloop(number: usize, seconds_ago: u64) -> Bloop<MockPlayer> {
+        let now = SystemTime::now() - Duration::from_secs(seconds_ago);
+        let timestamp: DateTime<Utc> = now.into();
+
+        let (player, _) = MockPlayer::builder().registration_number(number).build();
+        Bloop::new(player, "test", timestamp)
     }
 
     #[test]
-    fn prime_test_works_correctly() {
-        assert!(!internal_is_prime_no_cache(1));
-        assert!(internal_is_prime_no_cache(2));
-        assert!(internal_is_prime_no_cache(3));
-        assert!(!internal_is_prime_no_cache(4));
-        assert!(internal_is_prime_no_cache(5));
-        assert!(!internal_is_prime_no_cache(6));
-        assert!(internal_is_prime_no_cache(7));
-        assert!(!internal_is_prime_no_cache(8));
-        assert!(!internal_is_prime_no_cache(9));
-        assert!(!internal_is_prime_no_cache(10));
-        assert!(internal_is_prime_no_cache(11));
-        assert!(!internal_is_prime_no_cache(12));
-        assert!(internal_is_prime_no_cache(13));
+    fn predicate_eval_returns_true_when_enough_bloops_match_predicate() {
+        let evaluator = NumberPredicateEvaluator::new(|n| n % 2 == 0, 3, Duration::from_secs(60));
+
+        let current = make_bloop(8, 0);
+        let past = vec![
+            make_bloop(2, 10),
+            make_bloop(4, 20),
+            make_bloop(6, 30),
+            make_bloop(3, 40),
+        ];
+
+        let mut builder = TestCtxBuilder::new(current).bloops(past);
+        assert!(evaluator.evaluate(&builder.build()));
+    }
+
+    #[test]
+    fn predicate_eval_returns_false_when_not_enough_bloops_match_predicate() {
+        let evaluator = NumberPredicateEvaluator::new(|n| n % 2 == 0, 3, Duration::from_secs(60));
+
+        let current = make_bloop(1, 0);
+        let past = vec![make_bloop(2, 10), make_bloop(3, 20), make_bloop(5, 30)];
+
+        let mut builder = TestCtxBuilder::new(current).bloops(past);
+        assert!(!evaluator.evaluate(&builder.build()));
+    }
+
+    #[test]
+    fn predicate_eval_ignores_bloops_outside_time_window() {
+        let evaluator = NumberPredicateEvaluator::new(|n| n % 2 == 0, 2, Duration::from_secs(20));
+
+        let current = make_bloop(8, 0);
+        let past = vec![make_bloop(2, 10), make_bloop(4, 25), make_bloop(6, 30)];
+
+        let mut builder = TestCtxBuilder::new(current).bloops(past);
+        assert!(!evaluator.evaluate(&builder.build()));
+    }
+
+    #[test]
+    fn predicate_eval_takes_only_min_required_recent_matches() {
+        let evaluator = NumberPredicateEvaluator::new(|n| n < 10, 2, Duration::from_secs(60));
+
+        let current = make_bloop(1, 0);
+        let past = vec![make_bloop(9, 10), make_bloop(8, 15), make_bloop(100, 20)];
+
+        let mut builder = TestCtxBuilder::new(current).bloops(past);
+        assert!(evaluator.evaluate(&builder.build()));
+    }
+
+    #[test]
+    fn projection_eval_returns_true_when_enough_bloops_match_projection() {
+        let evaluator = ProjectionMatchEvaluator::new(|n| n % 2, 3, Duration::from_secs(60));
+
+        let current = make_bloop(4, 0);
+        let past = vec![
+            make_bloop(2, 10),
+            make_bloop(6, 20),
+            make_bloop(8, 30),
+            make_bloop(3, 40),
+        ];
+
+        let mut builder = TestCtxBuilder::new(current).bloops(past);
+        assert!(evaluator.evaluate(&builder.build()));
+    }
+
+    #[test]
+    fn projection_eval_returns_false_when_not_enough_bloops_match_projection() {
+        let evaluator = ProjectionMatchEvaluator::new(|n| n % 2, 4, Duration::from_secs(60));
+
+        let current = make_bloop(4, 0);
+        let past = vec![make_bloop(2, 10), make_bloop(6, 20), make_bloop(3, 30)];
+
+        let mut builder = TestCtxBuilder::new(current).bloops(past);
+        assert!(!evaluator.evaluate(&builder.build()));
+    }
+
+    #[test]
+    fn projection_eval_ignores_bloops_outside_time_window() {
+        let evaluator = ProjectionMatchEvaluator::new(|n| n % 2, 2, Duration::from_secs(20));
+
+        let current = make_bloop(4, 0);
+        let past = vec![make_bloop(2, 10), make_bloop(6, 25), make_bloop(8, 30)];
+
+        let mut builder = TestCtxBuilder::new(current).bloops(past);
+        assert!(!evaluator.evaluate(&builder.build()));
+    }
+
+    #[test]
+    fn projection_eval_takes_only_min_required_recent_matches() {
+        let evaluator = ProjectionMatchEvaluator::new(|n| n, 2, Duration::from_secs(60));
+
+        let current = make_bloop(4, 0);
+        let past = vec![make_bloop(4, 10), make_bloop(4, 15), make_bloop(4, 20)];
+
+        let mut builder = TestCtxBuilder::new(current).bloops(past);
+        assert!(evaluator.evaluate(&builder.build()));
+    }
+
+    #[test]
+    fn returns_true_for_perfect_squares() {
+        for n in [
+            0, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144, 1024, 4096, 10000,
+        ] {
+            assert!(
+                internal_is_perfect_square_no_cache(n),
+                "{n} should be a perfect square"
+            );
+        }
+    }
+
+    #[test]
+    fn returns_false_for_non_squares() {
+        for n in [
+            2, 3, 5, 6, 8, 10, 26, 50, 63, 65, 99, 101, 123, 10001, 12345,
+        ] {
+            assert!(
+                !internal_is_perfect_square_no_cache(n),
+                "{n} should not be a perfect square"
+            );
+        }
+    }
+
+    #[test]
+    fn returns_true_for_primes() {
+        for n in [
+            2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 101, 997,
+        ] {
+            assert!(internal_is_prime_no_cache(n), "{n} should be prime");
+        }
+    }
+
+    #[test]
+    fn returns_false_for_non_primes() {
+        for n in [
+            0, 1, 4, 6, 8, 9, 10, 12, 15, 21, 25, 27, 100, 1024, 4096, 10000,
+        ] {
+            assert!(!internal_is_prime_no_cache(n), "{n} should not be prime");
+        }
+    }
+
+    #[test]
+    fn returns_true_for_fibonacci_numbers() {
+        for n in [
+            0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 1597,
+        ] {
+            assert!(
+                internal_is_fibonacci_no_cache(n),
+                "{n} should be a Fibonacci number"
+            );
+        }
+    }
+
+    #[test]
+    fn returns_false_for_non_fibonacci_numbers() {
+        for n in [
+            4, 6, 7, 9, 10, 11, 12, 14, 15, 22, 100, 200, 1000, 1234, 2024,
+        ] {
+            assert!(
+                !internal_is_fibonacci_no_cache(n),
+                "{n} should not be a Fibonacci number"
+            );
+        }
     }
 }

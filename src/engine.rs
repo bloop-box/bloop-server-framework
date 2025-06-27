@@ -108,7 +108,7 @@ where
                 return;
             };
             player.write().unwrap().increment_bloops();
-            Bloop::new(player, client_id)
+            Bloop::new(player.clone(), client_id, Utc::now())
         };
 
         let mut awarded_tracker = self.evaluate_achievements(&bloop).await;
@@ -158,7 +158,7 @@ where
             }
         }
 
-        ctx.take_awarded()
+        ctx.take_awarded_tracker()
     }
 
     fn inject_hot_achievements(

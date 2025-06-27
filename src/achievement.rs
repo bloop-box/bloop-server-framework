@@ -49,12 +49,12 @@ where
     pub fn new(
         definition: AchievementDefinition,
         audio_path: impl Into<PathBuf>,
-        evaluator: Evaluator<Player, Metadata, Trigger>,
+        evaluator: impl Into<Evaluator<Player, Metadata, Trigger>>,
     ) -> Self {
         Self {
             definition,
             audio_path: audio_path.into(),
-            evaluator,
+            evaluator: evaluator.into(),
             hot_duration: None,
         }
     }
@@ -185,7 +185,6 @@ where
 
 impl<'a, Player, Metadata, Trigger> AchievementContext<'a, Player, Metadata, Trigger>
 where
-    Player: PlayerInfo,
     Trigger: Copy + PartialEq + Eq + Debug,
 {
     pub fn new(
@@ -202,12 +201,7 @@ where
             awarded_tracker: Mutex::new(AwardedTracker::new(current_bloop)),
         }
     }
-}
 
-impl<Player, Metadata, Trigger> AchievementContext<'_, Player, Metadata, Trigger>
-where
-    Trigger: Copy + PartialEq + Eq + Debug,
-{
     pub fn global_bloops(&self) -> impl Iterator<Item = &Arc<Bloop<Player>>> {
         self.bloop_provider.global().iter()
     }
@@ -257,7 +251,7 @@ where
     }
 
     /// Consumes the context and returns all awarded achievements.
-    pub(crate) fn take_awarded(self) -> AwardedTracker {
+    pub(crate) fn take_awarded_tracker(self) -> AwardedTracker {
         self.awarded_tracker.into_inner().unwrap()
     }
 }

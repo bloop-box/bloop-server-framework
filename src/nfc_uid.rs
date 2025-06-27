@@ -1,6 +1,6 @@
 use hex::{FromHex, FromHexError, decode_to_slice};
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Default)]
 pub struct NfcUid(pub [u8; 7]);
 
 impl NfcUid {

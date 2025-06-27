@@ -34,12 +34,18 @@ pub struct Bloop<Player> {
 }
 
 impl<Player: PlayerInfo> Bloop<Player> {
-    pub fn new(player: &Arc<RwLock<Player>>, client_id: String) -> Self {
+    pub fn new(
+        player: Arc<RwLock<Player>>,
+        client_id: impl Into<String>,
+        recorded_at: DateTime<Utc>,
+    ) -> Self {
+        let player_id = player.read().unwrap().id();
+
         Bloop {
-            player_id: player.read().unwrap().id(),
-            player: player.clone(),
-            client_id,
-            recorded_at: Utc::now(),
+            player_id,
+            player,
+            client_id: client_id.into(),
+            recorded_at,
         }
     }
 }

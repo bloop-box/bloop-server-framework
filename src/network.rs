@@ -88,11 +88,11 @@ where
 
         loop {
             let (stream, peer_addr) = listener.accept().await?;
-            let con_id = con_counter;
+            let conn_id = con_counter;
             con_counter += 1;
             let event_tx = self.event_tx.clone();
 
-            self.handle_stream(stream, peer_addr, self.clients.clone(), con_id, event_tx);
+            self.handle_stream(stream, peer_addr, self.clients.clone(), conn_id, event_tx);
         }
     }
 
@@ -101,7 +101,7 @@ where
         stream: TcpStream,
         peer_addr: SocketAddr,
         clients: Arc<RwLock<ClientRegistry>>,
-        con_id: usize,
+        conn_id: usize,
         event_tx: broadcast::Sender<Event>,
     ) {
         let acceptor = self.tls_acceptor.clone();
@@ -159,7 +159,7 @@ where
 
             let _ = event_tx.send(Event::ClientConnect {
                 client_id: client_id.clone(),
-                con_id,
+                conn_id,
                 local_ip,
             });
 
@@ -168,7 +168,7 @@ where
                 Ok(()) => {
                     let _ = event_tx.send(Event::ClientDisconnect {
                         client_id: client_id.clone(),
-                        con_id,
+                        conn_id,
                     });
                     return;
                 }
@@ -191,7 +191,7 @@ where
 
             let _ = event_tx.send(Event::ClientConnectionLoss {
                 client_id: client_id.clone(),
-                con_id,
+                conn_id,
             });
         });
     }
@@ -571,8 +571,7 @@ impl StandardRequest {
                     }
                     _ => {
                         return Err(Error::MalformedRequest(format!(
-                            "unknown INET version: {}",
-                            inet_version
+                            "unknown INET version: {inet_version}",
                         )));
                     }
                 };

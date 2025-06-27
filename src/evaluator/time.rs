@@ -3,11 +3,14 @@ use crate::evaluator::SingleEvaluator;
 use chrono::{LocalResult, NaiveTime, Timelike};
 use std::fmt::Debug;
 use std::time::Duration;
+use thiserror::Error;
 
-/// Evaluates whether the current bloop's timestamp falls within a specified time window.
+/// Evaluates whether the current bloop's timestamp falls within a specified
+/// time window.
 ///
-/// The `TimeEvaluator` checks if the `recorded_at` time of a bloop, converted to a configured
-/// timezone, matches the given hour and/or minute, allowing for an optional leeway duration.
+/// The `TimeEvaluator` checks if the `recorded_at` time of a bloop, converted
+/// to a configured timezone, matches the given hour and/or minute, allowing for
+/// an optional leeway duration.
 ///
 /// # Behavior
 ///
@@ -15,11 +18,13 @@ use std::time::Duration;
 /// - If `minute` is `Some`, it checks if the time's minute equals.
 /// - If either `hour` or `minute` is `None`, that component is ignored
 ///   (i.e., any hour or minute matches).
-/// - The time window starts at the exact configured hour/minute (or current hour/minute if `None`),
+/// - The time window starts at the exact configured hour/minute (or current
+///   hour/minute if `None`),
 ///   and extends forward by the `leeway` duration.
-/// - Handles daylight saving time ambiguities by selecting the earliest matching local time.
-/// - If the configured time does not exist on the day (e.g., during a DST gap), evaluation returns
-///   false.
+/// - Handles daylight saving time ambiguities by selecting the earliest
+///   matching local time.
+/// - If the configured time does not exist on the day (e.g., during a DST gap),
+///   evaluation returns false.
 #[derive(Debug)]
 pub struct TimeEvaluator {
     hour: Option<u32>,
@@ -28,10 +33,18 @@ pub struct TimeEvaluator {
     leeway: Duration,
 }
 
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("hour must be between 0 and 23")]
+    InvalidHour(u32),
+    #[error("minute must be between 0 and 59")]
+    InvalidMinute(u32),
+}
+
+type Result<T> = std::result::Result<T, Error>;
+
 impl TimeEvaluator {
     /// Creates a new `TimeEvaluator`.
-    ///
-    /// Panics if `hour >= 24` or `minute >= 60`.
     ///
     /// # Examples
     ///
@@ -44,28 +57,32 @@ impl TimeEvaluator {
     ///     None,
     ///     chrono_tz::Europe::Berlin,
     ///     Some(Duration::from_secs(60))
-    /// );
+    /// ).unwrap();
     /// ```
     pub fn new(
         hour: Option<u32>,
         minute: Option<u32>,
         timezone: chrono_tz::Tz,
         leeway: Option<Duration>,
-    ) -> Self {
+    ) -> Result<Self> {
         if let Some(hour) = hour {
-            assert!(hour < 24, "Hour must be between 0 and 23");
+            if hour > 23 {
+                return Err(Error::InvalidHour(hour));
+            }
         }
 
         if let Some(minute) = minute {
-            assert!(minute < 60, "Minute must be between 0 and 59");
+            if minute > 59 {
+                return Err(Error::InvalidMinute(minute));
+            }
         }
 
-        Self {
+        Ok(Self {
             hour,
             minute,
             timezone,
             leeway: leeway.unwrap_or_default(),
-        }
+        })
     }
 }
 
@@ -92,5 +109,99 @@ where
         };
 
         now >= target_time && now <= target_time + self.leeway
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::bloop::Bloop;
+    use crate::evaluator::SingleEvaluator;
+    use crate::evaluator::test_utils::{MockPlayer, TestCtxBuilder};
+    use crate::evaluator::time::TimeEvaluator;
+    use chrono::{DateTime, TimeZone, Utc};
+    use chrono_tz::Europe::Berlin;
+    use std::time::Duration;
+
+    fn make_ctx_for_time(dt: DateTime<Utc>) -> TestCtxBuilder<MockPlayer, (), ()> {
+        let (player, _) = MockPlayer::builder().build();
+        let bloop = Bloop::new(player.clone(), "client1", dt);
+        TestCtxBuilder::new(bloop)
+    }
+
+    #[test]
+    fn matches_exact_hour_minute() {
+        let time = Berlin
+            .with_ymd_and_hms(2024, 10, 1, 14, 30, 0)
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut ctx = make_ctx_for_time(time);
+        let evaluator = TimeEvaluator::new(Some(14), Some(30), Berlin, None).unwrap();
+        assert!(evaluator.evaluate(&ctx.build()));
+    }
+
+    #[test]
+    fn within_leeway() {
+        let time = Berlin
+            .with_ymd_and_hms(2024, 10, 1, 14, 30, 30)
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut ctx = make_ctx_for_time(time);
+        let evaluator =
+            TimeEvaluator::new(Some(14), Some(30), Berlin, Some(Duration::from_secs(60))).unwrap();
+        assert!(evaluator.evaluate(&ctx.build()));
+    }
+
+    #[test]
+    fn outside_leeway_fails() {
+        let time = Berlin
+            .with_ymd_and_hms(2024, 10, 1, 14, 32, 0)
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut ctx = make_ctx_for_time(time);
+        let evaluator =
+            TimeEvaluator::new(Some(14), Some(30), Berlin, Some(Duration::from_secs(60))).unwrap();
+        assert!(!evaluator.evaluate(&ctx.build()));
+    }
+
+    #[test]
+    fn with_only_hour() {
+        let time = Berlin
+            .with_ymd_and_hms(2024, 10, 1, 9, 15, 0)
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut ctx = make_ctx_for_time(time);
+        let evaluator =
+            TimeEvaluator::new(Some(9), None, Berlin, Some(Duration::from_secs(1800))).unwrap();
+        assert!(evaluator.evaluate(&ctx.build()));
+    }
+
+    #[test]
+    fn with_only_minute() {
+        let time = Berlin
+            .with_ymd_and_hms(2024, 10, 1, 22, 45, 0)
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut ctx = make_ctx_for_time(time);
+        let evaluator =
+            TimeEvaluator::new(None, Some(45), Berlin, Some(Duration::from_secs(60))).unwrap();
+        assert!(evaluator.evaluate(&ctx.build()));
+    }
+
+    #[test]
+    fn dst_gap_returns_false() {
+        let time = Utc.with_ymd_and_hms(2024, 10, 27, 1, 30, 0).unwrap();
+        let mut ctx = make_ctx_for_time(time);
+        let evaluator =
+            TimeEvaluator::new(Some(2), Some(30), Berlin, Some(Duration::from_secs(60))).unwrap();
+        assert!(!evaluator.evaluate(&ctx.build()));
+    }
+
+    #[test]
+    fn handles_ambiguous_time() {
+        let time = Utc.with_ymd_and_hms(2024, 10, 27, 0, 30, 0).unwrap();
+        let mut ctx = make_ctx_for_time(time);
+        let evaluator =
+            TimeEvaluator::new(Some(2), Some(30), Berlin, Some(Duration::from_secs(60))).unwrap();
+        assert!(evaluator.evaluate(&ctx.build()));
     }
 }
