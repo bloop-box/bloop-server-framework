@@ -1,5 +1,5 @@
 use crate::achievement::AchievementContext;
-use crate::evaluator::SingleEvaluator;
+use crate::evaluator::{EvalResult, Evaluator};
 use cached::proc_macro::cached;
 use num_integer::Roots;
 use std::fmt;
@@ -106,14 +106,16 @@ where
     }
 }
 
-impl<Player, Metadata, Trigger, F> SingleEvaluator<Player, Metadata, Trigger>
+impl<Player, Metadata, Trigger, F> Evaluator<Player, Metadata, Trigger>
     for NumberPredicateEvaluator<F>
 where
-    Player: RegistrationNumberProvider + Debug,
-    Trigger: Copy + PartialEq + Eq + Debug,
+    Player: RegistrationNumberProvider,
     F: Fn(usize) -> bool + Send + Sync + 'static,
 {
-    fn evaluate(&self, ctx: &AchievementContext<Player, Metadata, Trigger>) -> bool {
+    fn evaluate(
+        &self,
+        ctx: &AchievementContext<Player, Metadata, Trigger>,
+    ) -> impl Into<EvalResult> {
         let bloops = ctx
             .client_bloops()
             .filter(ctx.filter_within_window(self.max_window))
@@ -166,6 +168,7 @@ pub fn digit_sum(number: usize) -> usize {
 /// modulo class.
 ///
 /// # Notes
+///
 /// - The projection function must return a value that implements [`PartialEq`].
 /// - Only bloops from the same client (i.e., `client_bloops()`) are considered.
 /// - The comparison starts from the most recent bloop and checks up to
@@ -250,15 +253,17 @@ where
     }
 }
 
-impl<Player, Metadata, Trigger, F, V> SingleEvaluator<Player, Metadata, Trigger>
+impl<Player, Metadata, Trigger, F, V> Evaluator<Player, Metadata, Trigger>
     for ProjectionMatchEvaluator<F, V>
 where
     Player: RegistrationNumberProvider,
-    Trigger: Copy + PartialEq + Eq + Debug,
     F: Fn(usize) -> V + Send + Sync + 'static,
     V: PartialEq,
 {
-    fn evaluate(&self, ctx: &AchievementContext<Player, Metadata, Trigger>) -> bool {
+    fn evaluate(
+        &self,
+        ctx: &AchievementContext<Player, Metadata, Trigger>,
+    ) -> impl Into<EvalResult> {
         let reference = (self.projector)(ctx.current_bloop.player().registration_number());
 
         let bloops = ctx
@@ -276,14 +281,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::bloop::Bloop;
-    use crate::evaluator::SingleEvaluator;
-    use crate::evaluator::registration_number::{
-        ProjectionMatchEvaluator, NumberPredicateEvaluator, digit_sum,
-        internal_is_fibonacci_no_cache, internal_is_perfect_square_no_cache,
-        internal_is_prime_no_cache,
-    };
-    use crate::evaluator::test_utils::{MockPlayer, TestCtxBuilder};
+    use crate::evaluator::{EvalResult, Evaluator};
+    use crate::test_utils::{MockPlayer, TestCtxBuilder};
     use chrono::{DateTime, Utc};
     use std::time::{Duration, SystemTime};
 
@@ -308,7 +309,10 @@ mod tests {
         ];
 
         let mut builder = TestCtxBuilder::new(current).bloops(past);
-        assert!(evaluator.evaluate(&builder.build()));
+        assert_eq!(
+            evaluator.evaluate(&builder.build()).into(),
+            EvalResult::AwardSelf
+        );
     }
 
     #[test]
@@ -319,7 +323,10 @@ mod tests {
         let past = vec![make_bloop(2, 10), make_bloop(3, 20), make_bloop(5, 30)];
 
         let mut builder = TestCtxBuilder::new(current).bloops(past);
-        assert!(!evaluator.evaluate(&builder.build()));
+        assert_eq!(
+            evaluator.evaluate(&builder.build()).into(),
+            EvalResult::NoAward
+        );
     }
 
     #[test]
@@ -330,7 +337,10 @@ mod tests {
         let past = vec![make_bloop(2, 10), make_bloop(4, 25), make_bloop(6, 30)];
 
         let mut builder = TestCtxBuilder::new(current).bloops(past);
-        assert!(!evaluator.evaluate(&builder.build()));
+        assert_eq!(
+            evaluator.evaluate(&builder.build()).into(),
+            EvalResult::NoAward
+        );
     }
 
     #[test]
@@ -341,7 +351,10 @@ mod tests {
         let past = vec![make_bloop(9, 10), make_bloop(8, 15), make_bloop(100, 20)];
 
         let mut builder = TestCtxBuilder::new(current).bloops(past);
-        assert!(evaluator.evaluate(&builder.build()));
+        assert_eq!(
+            evaluator.evaluate(&builder.build()).into(),
+            EvalResult::AwardSelf
+        );
     }
 
     #[test]
@@ -357,7 +370,10 @@ mod tests {
         ];
 
         let mut builder = TestCtxBuilder::new(current).bloops(past);
-        assert!(evaluator.evaluate(&builder.build()));
+        assert_eq!(
+            evaluator.evaluate(&builder.build()).into(),
+            EvalResult::AwardSelf
+        );
     }
 
     #[test]
@@ -368,7 +384,10 @@ mod tests {
         let past = vec![make_bloop(2, 10), make_bloop(6, 20), make_bloop(3, 30)];
 
         let mut builder = TestCtxBuilder::new(current).bloops(past);
-        assert!(!evaluator.evaluate(&builder.build()));
+        assert_eq!(
+            evaluator.evaluate(&builder.build()).into(),
+            EvalResult::NoAward
+        );
     }
 
     #[test]
@@ -379,7 +398,10 @@ mod tests {
         let past = vec![make_bloop(2, 10), make_bloop(6, 25), make_bloop(8, 30)];
 
         let mut builder = TestCtxBuilder::new(current).bloops(past);
-        assert!(!evaluator.evaluate(&builder.build()));
+        assert_eq!(
+            evaluator.evaluate(&builder.build()).into(),
+            EvalResult::NoAward
+        );
     }
 
     #[test]
@@ -390,7 +412,10 @@ mod tests {
         let past = vec![make_bloop(4, 10), make_bloop(4, 15), make_bloop(4, 20)];
 
         let mut builder = TestCtxBuilder::new(current).bloops(past);
-        assert!(evaluator.evaluate(&builder.build()));
+        assert_eq!(
+            evaluator.evaluate(&builder.build()).into(),
+            EvalResult::AwardSelf
+        );
     }
 
     #[test]

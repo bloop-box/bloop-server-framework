@@ -4,10 +4,9 @@ mod player;
 use crate::bloop::DummyBloopRepository;
 use crate::player::{AwardedAchievementsPersister, DummyPlayerRepository, Player};
 use argon2::password_hash::PasswordHashString;
-use bloop_server_framework::achievement::AchievementDefinition;
+use bloop_server_framework::achievement::AchievementBuilder;
 use bloop_server_framework::bloop::ProcessedBloopSinkBuilder;
 use bloop_server_framework::engine::EngineBuilder;
-use bloop_server_framework::evaluator::SingleEvaluator;
 use bloop_server_framework::evaluator::min_bloops::MinBloopsEvaluator;
 use bloop_server_framework::network::NetworkListenerBuilder;
 use bloop_server_framework::player::PlayerRegistry;
@@ -19,24 +18,17 @@ use tokio_graceful_shutdown::{IntoSubsystem, SubsystemBuilder, Toplevel};
 use uuid::uuid;
 
 /// Shortcut to make it easier to define a bunch of achievements without having to repeat generics.
-pub type Achievement = bloop_server_framework::achievement::Achievement<Player, (), ()>;
+pub type Achievement = bloop_server_framework::achievement::Achievement<(), Player, (), ()>;
 
 const BLOOP_RETENTION: Duration = Duration::from_secs(60 * 30);
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let achievement = Achievement::new(
-        AchievementDefinition {
-            id: uuid!("565fd1d0-d973-4870-b9db-9574fa6d81d2"),
-            title: "First Bloop".to_string(),
-            description: "You gained your first bloop!".to_string(),
-            points: 1,
-            is_hidden: true,
-        },
-        "audio.mp3",
-        MinBloopsEvaluator::new(1).wrap(),
-    );
-    let achievements = vec![achievement];
+    let achievement = AchievementBuilder::new()
+        .id(uuid!("565fd1d0-d973-4870-b9db-9574fa6d81d2"))
+        .evaluator(MinBloopsEvaluator::new(1))
+        .build()?;
+    let achievements: Vec<Achievement> = vec![achievement];
 
     let player_repository = DummyPlayerRepository;
     let players = player_repository.load_all().await?;
@@ -82,7 +74,8 @@ async fn main() -> anyhow::Result<()> {
         .engine_tx(engine_tx)
         .build()?;
 
-    let processed_bloop_sink = ProcessedBloopSinkBuilder::new(bloop_repository)
+    let processed_bloop_sink = ProcessedBloopSinkBuilder::new()
+        .repository(bloop_repository)
         .max_batch_size(500)
         .max_batch_duration(Duration::from_secs(60))
         .event_rx(event_rx)

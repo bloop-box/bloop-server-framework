@@ -27,6 +27,7 @@ use tracing::error;
 ///     ChatId(123456)
 /// );
 /// ```
+#[derive(Debug)]
 pub struct TelegramReportHealthSender {
     bot: Bot,
     chat_id: ChatId,

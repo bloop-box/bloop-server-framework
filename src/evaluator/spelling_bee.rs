@@ -1,5 +1,5 @@
 use crate::achievement::AchievementContext;
-use crate::evaluator::SingleEvaluator;
+use crate::evaluator::{EvalResult, Evaluator};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::time::Duration;
@@ -111,15 +111,15 @@ impl SpellingBeeEvaluator {
     }
 }
 
-impl<Player, Metadata, Trigger> SingleEvaluator<Player, Metadata, Trigger> for SpellingBeeEvaluator
-where
-    Trigger: Copy + PartialEq + Eq + Debug,
-{
+impl<Player, Metadata, Trigger> Evaluator<Player, Metadata, Trigger> for SpellingBeeEvaluator {
     /// Evaluates if the player's recent bloops match the target spelling sequence.
     ///
     /// Checks that the bloops for letters happen in order within the allowed time
     /// window.
-    fn evaluate(&self, ctx: &AchievementContext<Player, Metadata, Trigger>) -> bool {
+    fn evaluate(
+        &self,
+        ctx: &AchievementContext<Player, Metadata, Trigger>,
+    ) -> impl Into<EvalResult> {
         if ctx.current_bloop.client_id != *self.client_ids.first().unwrap() {
             return false;
         }
@@ -140,8 +140,10 @@ mod tests {
     use super::*;
     use crate::bloop::Bloop;
     use crate::char_map;
-    use crate::evaluator::test_utils::{MockPlayer, TestCtxBuilder};
+    use crate::evaluator::{EvalResult, Evaluator};
+    use crate::test_utils::{MockPlayer, TestCtxBuilder};
     use chrono::Utc;
+    use std::collections::HashMap;
     use std::sync::{Arc, RwLock};
     use std::time::Duration;
 
@@ -172,7 +174,10 @@ mod tests {
 
         let evaluator =
             SpellingBeeEvaluator::new(word, &client_map, Duration::from_secs(15)).unwrap();
-        assert!(evaluator.evaluate(&builder.build()));
+        assert_eq!(
+            evaluator.evaluate(&builder.build()).into(),
+            EvalResult::AwardSelf
+        );
     }
 
     #[test]
@@ -191,11 +196,13 @@ mod tests {
         ];
 
         let mut builder = TestCtxBuilder::new(make_bloop(&player, "client2", 0)).bloops(bloops);
-        let ctx = builder.build();
 
         let evaluator =
             SpellingBeeEvaluator::new(word, &client_map, Duration::from_secs(15)).unwrap();
-        assert!(!evaluator.evaluate(&ctx));
+        assert_eq!(
+            evaluator.evaluate(&builder.build()).into(),
+            EvalResult::NoAward
+        );
     }
 
     #[test]
@@ -215,11 +222,13 @@ mod tests {
 
         let mut builder =
             TestCtxBuilder::new(make_bloop(&player, "wrong_client", 0)).bloops(bloops);
-        let ctx = builder.build();
 
         let evaluator =
             SpellingBeeEvaluator::new(word, &client_map, Duration::from_secs(15)).unwrap();
-        assert!(!evaluator.evaluate(&ctx));
+        assert_eq!(
+            evaluator.evaluate(&builder.build()).into(),
+            EvalResult::NoAward
+        );
     }
 
     #[test]
@@ -239,11 +248,13 @@ mod tests {
         ];
 
         let mut builder = TestCtxBuilder::new(make_bloop(&player, "client3", 0)).bloops(bloops);
-        let ctx = builder.build();
 
         let evaluator =
             SpellingBeeEvaluator::new(word, &client_map, Duration::from_secs(10)).unwrap();
-        assert!(!evaluator.evaluate(&ctx));
+        assert_eq!(
+            evaluator.evaluate(&builder.build()).into(),
+            EvalResult::NoAward
+        );
     }
 
     #[test]

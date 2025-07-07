@@ -1,5 +1,5 @@
 use crate::achievement::AchievementContext;
-use crate::evaluator::SingleEvaluator;
+use crate::evaluator::{EvalResult, Evaluator};
 use chrono::{LocalResult, NaiveTime, Timelike};
 use std::fmt::Debug;
 use std::time::Duration;
@@ -86,11 +86,11 @@ impl TimeEvaluator {
     }
 }
 
-impl<Player, Metadata, Trigger> SingleEvaluator<Player, Metadata, Trigger> for TimeEvaluator
-where
-    Trigger: Copy + PartialEq + Eq + Debug,
-{
-    fn evaluate(&self, ctx: &AchievementContext<Player, Metadata, Trigger>) -> bool {
+impl<Player, Metadata, Trigger> Evaluator<Player, Metadata, Trigger> for TimeEvaluator {
+    fn evaluate(
+        &self,
+        ctx: &AchievementContext<Player, Metadata, Trigger>,
+    ) -> impl Into<EvalResult> {
         let now = ctx.current_bloop.recorded_at.with_timezone(&self.timezone);
 
         let target_time = now.with_time(
@@ -114,15 +114,15 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::bloop::Bloop;
-    use crate::evaluator::SingleEvaluator;
-    use crate::evaluator::test_utils::{MockPlayer, TestCtxBuilder};
-    use crate::evaluator::time::TimeEvaluator;
+    use crate::evaluator::{EvalResult, Evaluator};
+    use crate::test_utils::{MockPlayer, TestCtxBuilder};
     use chrono::{DateTime, TimeZone, Utc};
     use chrono_tz::Europe::Berlin;
     use std::time::Duration;
 
-    fn make_ctx_for_time(dt: DateTime<Utc>) -> TestCtxBuilder<MockPlayer, (), ()> {
+    fn make_ctx_builder_for_time(dt: DateTime<Utc>) -> TestCtxBuilder<MockPlayer, (), ()> {
         let (player, _) = MockPlayer::builder().build();
         let bloop = Bloop::new(player.clone(), "client1", dt);
         TestCtxBuilder::new(bloop)
@@ -134,9 +134,12 @@ mod tests {
             .with_ymd_and_hms(2024, 10, 1, 14, 30, 0)
             .unwrap()
             .with_timezone(&Utc);
-        let mut ctx = make_ctx_for_time(time);
+        let mut builder = make_ctx_builder_for_time(time);
         let evaluator = TimeEvaluator::new(Some(14), Some(30), Berlin, None).unwrap();
-        assert!(evaluator.evaluate(&ctx.build()));
+        assert_eq!(
+            evaluator.evaluate(&builder.build()).into(),
+            EvalResult::AwardSelf
+        );
     }
 
     #[test]
@@ -145,10 +148,13 @@ mod tests {
             .with_ymd_and_hms(2024, 10, 1, 14, 30, 30)
             .unwrap()
             .with_timezone(&Utc);
-        let mut ctx = make_ctx_for_time(time);
+        let mut builder = make_ctx_builder_for_time(time);
         let evaluator =
             TimeEvaluator::new(Some(14), Some(30), Berlin, Some(Duration::from_secs(60))).unwrap();
-        assert!(evaluator.evaluate(&ctx.build()));
+        assert_eq!(
+            evaluator.evaluate(&builder.build()).into(),
+            EvalResult::AwardSelf
+        );
     }
 
     #[test]
@@ -157,10 +163,13 @@ mod tests {
             .with_ymd_and_hms(2024, 10, 1, 14, 32, 0)
             .unwrap()
             .with_timezone(&Utc);
-        let mut ctx = make_ctx_for_time(time);
+        let mut builder = make_ctx_builder_for_time(time);
         let evaluator =
             TimeEvaluator::new(Some(14), Some(30), Berlin, Some(Duration::from_secs(60))).unwrap();
-        assert!(!evaluator.evaluate(&ctx.build()));
+        assert_eq!(
+            evaluator.evaluate(&builder.build()).into(),
+            EvalResult::NoAward
+        );
     }
 
     #[test]
@@ -169,10 +178,13 @@ mod tests {
             .with_ymd_and_hms(2024, 10, 1, 9, 15, 0)
             .unwrap()
             .with_timezone(&Utc);
-        let mut ctx = make_ctx_for_time(time);
+        let mut builder = make_ctx_builder_for_time(time);
         let evaluator =
             TimeEvaluator::new(Some(9), None, Berlin, Some(Duration::from_secs(1800))).unwrap();
-        assert!(evaluator.evaluate(&ctx.build()));
+        assert_eq!(
+            evaluator.evaluate(&builder.build()).into(),
+            EvalResult::AwardSelf
+        );
     }
 
     #[test]
@@ -181,27 +193,36 @@ mod tests {
             .with_ymd_and_hms(2024, 10, 1, 22, 45, 0)
             .unwrap()
             .with_timezone(&Utc);
-        let mut ctx = make_ctx_for_time(time);
+        let mut builder = make_ctx_builder_for_time(time);
         let evaluator =
             TimeEvaluator::new(None, Some(45), Berlin, Some(Duration::from_secs(60))).unwrap();
-        assert!(evaluator.evaluate(&ctx.build()));
+        assert_eq!(
+            evaluator.evaluate(&builder.build()).into(),
+            EvalResult::AwardSelf
+        );
     }
 
     #[test]
     fn dst_gap_returns_false() {
         let time = Utc.with_ymd_and_hms(2024, 10, 27, 1, 30, 0).unwrap();
-        let mut ctx = make_ctx_for_time(time);
+        let mut builder = make_ctx_builder_for_time(time);
         let evaluator =
             TimeEvaluator::new(Some(2), Some(30), Berlin, Some(Duration::from_secs(60))).unwrap();
-        assert!(!evaluator.evaluate(&ctx.build()));
+        assert_eq!(
+            evaluator.evaluate(&builder.build()).into(),
+            EvalResult::NoAward
+        );
     }
 
     #[test]
     fn handles_ambiguous_time() {
         let time = Utc.with_ymd_and_hms(2024, 10, 27, 0, 30, 0).unwrap();
-        let mut ctx = make_ctx_for_time(time);
+        let mut builder = make_ctx_builder_for_time(time);
         let evaluator =
             TimeEvaluator::new(Some(2), Some(30), Berlin, Some(Duration::from_secs(60))).unwrap();
-        assert!(evaluator.evaluate(&ctx.build()));
+        assert_eq!(
+            evaluator.evaluate(&builder.build()).into(),
+            EvalResult::AwardSelf
+        );
     }
 }

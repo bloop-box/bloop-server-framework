@@ -1,6 +1,11 @@
+//! TLS-based network server for handling authenticated client connections.
+//!
+//! This module provides a [`NetworkListener`] that manages client authentication,
+//! request processing, and message dispatching over a secure TCP connection.
+
 use crate::engine::EngineRequest;
 use crate::event::Event;
-use crate::nfc_uid::NfcUid;
+use crate::message::{ClientMessage, ErrorResponse, Message, ServerFeatures, ServerMessage};
 use argon2::{Argon2, PasswordVerifier, password_hash::PasswordHashString};
 use async_trait::async_trait;
 use rustls::ServerConfig;
@@ -16,21 +21,18 @@ use std::result;
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader, BufWriter};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{RwLock, broadcast, mpsc, oneshot};
 use tokio::time::timeout;
-use tokio::{io, pin};
 #[cfg(feature = "tokio-graceful-shutdown")]
 use tokio_graceful_shutdown::{FutureExt, IntoSubsystem, SubsystemHandle};
-use tokio_io_timeout::TimeoutStream;
 use tokio_rustls::TlsAcceptor;
-use tracing::{info, warn};
-use uuid::Uuid;
+use tracing::{info, instrument, warn};
 
-/// A list of clients mapping client ID to secret hash.
+/// Maps client IDs to their stored password hashes (Argon2).
 ///
-/// The hash must be a valid argon2id hash.
+/// Used during client authentication.
 pub type ClientRegistry = HashMap<String, PasswordHashString>;
 
 #[derive(Error, Debug)]
@@ -41,14 +43,11 @@ pub enum Error {
     #[error(transparent)]
     Oneshot(#[from] oneshot::error::RecvError),
 
-    #[error("request failed to parse: {0}")]
-    MalformedRequest(String),
+    #[error("client sent unexpected message: {0:?}")]
+    UnexpectedMessage(ClientMessage),
 
-    #[error("client sent unexpected message")]
-    UnexpectedMessage,
-
-    #[error("client requested an unsupported version: {0}")]
-    UnsupportedVersion(u8),
+    #[error("client requested an unsupported version range: {0} - {1}")]
+    UnsupportedVersion(u8, u8),
 
     #[error("unrecognized request code: {0}")]
     UnknownRequest(u8),
@@ -59,29 +58,76 @@ pub enum Error {
 
 pub type Result<T> = result::Result<T, Error>;
 
+/// A wrapper for custom client requests that are forwarded to the application
+/// layer.
+#[derive(Debug)]
 #[allow(dead_code)]
-pub struct CustomRequestMessage<T> {
+pub struct CustomRequestMessage {
     client_id: String,
-    request: T,
-    response: oneshot::Sender<Box<dyn WriteToStream>>,
+    message: Message,
+    response: oneshot::Sender<Option<Message>>,
 }
 
-pub struct NetworkListener<CustomRequest>
-where
-    CustomRequest: ReadFromStream + Send + 'static,
-{
+/// A TLS-secured TCP server that accepts client connections, authenticates
+/// them, and dispatches their requests to the appropriate handlers.
+///
+/// This listener handles authentication, version negotiation, and supports
+/// custom client messages.
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::sync::Arc;
+/// use tokio::sync::{mpsc, broadcast, RwLock};
+/// use bloop_server_framework::network::NetworkListenerBuilder;
+///
+/// #[tokio::main]
+/// async fn main() {
+///   let clients = Arc::new(RwLock::new(Default::default()));
+///   let (engine_tx, _) = mpsc::channel(10);
+///   let (event_tx, _) = broadcast::channel(10);
+///
+///   let listener = NetworkListenerBuilder::new()
+///       .address("127.0.0.1:12345")
+///       .cert_path("server.crt")
+///       .key_path("server.key")
+///       .clients(clients)
+///       .engine_tx(engine_tx)
+///       .event_tx(event_tx)
+///       .build()
+///       .unwrap();
+///
+///   listener.listen().await.unwrap();
+/// }
+/// ```
+pub struct NetworkListener {
     clients: Arc<RwLock<ClientRegistry>>,
     addr: SocketAddr,
     tls_acceptor: TlsAcceptor,
-    engine_tx: mpsc::Sender<(EngineRequest, oneshot::Sender<StandardResponse>)>,
+    engine_tx: mpsc::Sender<(EngineRequest, oneshot::Sender<ServerMessage>)>,
     event_tx: broadcast::Sender<Event>,
-    custom_req_tx: Option<mpsc::Sender<CustomRequestMessage<CustomRequest>>>,
+    custom_req_tx: Option<mpsc::Sender<CustomRequestMessage>>,
 }
 
-impl<CustomRequest> NetworkListener<CustomRequest>
-where
-    CustomRequest: ReadFromStream + Send + 'static,
-{
+impl Debug for NetworkListener {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NetworkListener")
+            .field("clients", &self.clients)
+            .field("addr", &self.addr)
+            .field("engine_tx", &self.engine_tx)
+            .field("event_tx", &self.event_tx)
+            .field("custom_req_tx", &self.custom_req_tx)
+            .finish()
+    }
+}
+
+impl NetworkListener {
+    /// Starts listening for incoming TCP connections.
+    ///
+    /// This method blocks indefinitely, accepting and processing new connections.
+    /// Each connection is handled asynchronously in its own task.
+    ///
+    /// Returns an error only if the server fails to bind to the specified address.
     pub async fn listen(&self) -> Result<()> {
         let listener = TcpListener::bind(self.addr).await?;
         let mut con_counter: usize = 0;
@@ -96,6 +142,7 @@ where
         }
     }
 
+    #[instrument(skip(self, stream, peer_addr, clients, event_tx))]
     fn handle_stream(
         &self,
         stream: TcpStream,
@@ -111,7 +158,7 @@ where
         tokio::spawn(async move {
             info!("new connection from {}", peer_addr);
 
-            let mut stream = match acceptor.accept(stream).await {
+            let stream = match acceptor.accept(stream).await {
                 Ok(stream) => stream,
                 Err(error) => {
                     warn!("failed to accept stream: {}", error);
@@ -119,43 +166,67 @@ where
                 }
             };
 
-            let (client_id, local_ip, _version) =
-                match timeout(Duration::from_secs(2), authenticate(&mut stream, clients)).await {
-                    Ok(Ok(result)) => result,
-                    Ok(Err(Error::MalformedRequest(reason))) => {
-                        warn!("client sent malformed request: {}", reason);
-                        let _ = StandardResponse::Error(ErrorResponse::MalformedMessage)
-                            .send(&mut stream)
-                            .await;
-                        return;
-                    }
-                    Ok(Err(Error::UnexpectedMessage)) => {
-                        warn!("client sent unexpected message");
-                        let _ = StandardResponse::Error(ErrorResponse::UnexpectedMessage)
-                            .send(&mut stream)
-                            .await;
-                        return;
-                    }
-                    Ok(Err(Error::UnsupportedVersion(version))) => {
-                        warn!("client requested unsupported version: {}", version);
-                        let _ = StandardResponse::Error(ErrorResponse::UnsupportedVersion)
-                            .send(&mut stream)
-                            .await;
-                        return;
-                    }
-                    Ok(Err(Error::InvalidCredentials)) => {
-                        warn!("client provided invalid credentials");
-                        let _ = StandardResponse::Error(ErrorResponse::InvalidCredentials)
-                            .send(&mut stream)
-                            .await;
-                        return;
-                    }
-                    Ok(Err(_)) => return,
-                    Err(_) => {
-                        warn!("client authentication timed out");
-                        return;
-                    }
-                };
+            let (reader, writer) = io::split(stream);
+            let mut reader = BufReader::new(reader);
+            let mut writer = BufWriter::new(writer);
+
+            let (client_id, local_ip, _version) = match timeout(
+                Duration::from_secs(2),
+                authenticate(&mut reader, &mut writer, clients),
+            )
+            .await
+            {
+                Ok(Ok(result)) => result,
+                Ok(Err(Error::UnexpectedMessage(message))) => {
+                    warn!("client error: unexpected message: {:?}", message);
+                    let _ = write_to_stream(
+                        &mut writer,
+                        ServerMessage::Error(ErrorResponse::UnexpectedMessage),
+                    )
+                    .await;
+                    return;
+                }
+                Ok(Err(Error::UnsupportedVersion(min_version, max_version))) => {
+                    warn!("client error: unsupported version range: {min_version} - {max_version}");
+                    let _ = write_to_stream(
+                        &mut writer,
+                        ServerMessage::Error(ErrorResponse::UnsupportedVersionRange),
+                    )
+                    .await;
+                    return;
+                }
+                Ok(Err(Error::InvalidCredentials)) => {
+                    warn!("client error: invalid credentials");
+                    let _ = write_to_stream(
+                        &mut writer,
+                        ServerMessage::Error(ErrorResponse::InvalidCredentials),
+                    )
+                    .await;
+                    return;
+                }
+                Ok(Err(Error::Io(error)))
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData
+                    ) =>
+                {
+                    warn!("client error: malformed message: {:?}", error);
+                    let _ = write_to_stream(
+                        &mut writer,
+                        ServerMessage::Error(ErrorResponse::MalformedMessage),
+                    )
+                    .await;
+                    return;
+                }
+                Ok(Err(error)) => {
+                    warn!("client error: connection died: {:?}", error);
+                    return;
+                }
+                Err(_) => {
+                    warn!("client error: authentication timed out");
+                    return;
+                }
+            };
 
             let _ = event_tx.send(Event::ClientConnect {
                 client_id: client_id.clone(),
@@ -163,46 +234,55 @@ where
                 local_ip,
             });
 
-            match handle_connection(&mut stream, client_id.clone(), engine_tx, custom_req_tx).await
+            match handle_connection(
+                &mut reader,
+                &mut writer,
+                &client_id,
+                engine_tx,
+                custom_req_tx,
+            )
+            .await
             {
                 Ok(()) => {
-                    let _ = event_tx.send(Event::ClientDisconnect {
-                        client_id: client_id.clone(),
-                        conn_id,
-                    });
+                    let _ = event_tx.send(Event::ClientDisconnect { client_id, conn_id });
                     return;
                 }
-                Err(Error::MalformedRequest(reason)) => {
-                    warn!("client sent malformed request: {}", reason);
-                    let _ = StandardResponse::Error(ErrorResponse::MalformedMessage)
-                        .send(&mut stream)
-                        .await;
+                Err(Error::UnexpectedMessage(message)) => {
+                    warn!("client error: unexpected message: {:?}", message);
+                    let _ = write_to_stream(
+                        &mut writer,
+                        ServerMessage::Error(ErrorResponse::UnexpectedMessage),
+                    )
+                    .await;
                 }
-                Err(Error::UnexpectedMessage) => {
-                    warn!("client sent unexpected message");
-                    let _ = StandardResponse::Error(ErrorResponse::UnexpectedMessage)
-                        .send(&mut stream)
-                        .await;
+                Err(Error::Io(error))
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData
+                    ) =>
+                {
+                    warn!("client error: malformed message: {:?}", error);
+                    let _ = write_to_stream(
+                        &mut writer,
+                        ServerMessage::Error(ErrorResponse::MalformedMessage),
+                    )
+                    .await;
+                    return;
                 }
-                Err(err) => {
-                    warn!("connection failed: {}", err);
+                Err(error) => {
+                    warn!("client error: connection died: {:?}", error);
+                    return;
                 }
             }
 
-            let _ = event_tx.send(Event::ClientConnectionLoss {
-                client_id: client_id.clone(),
-                conn_id,
-            });
+            let _ = event_tx.send(Event::ClientConnectionLoss { client_id, conn_id });
         });
     }
 }
 
 #[cfg(feature = "tokio-graceful-shutdown")]
 #[async_trait]
-impl<CustomRequest> IntoSubsystem<Error> for NetworkListener<CustomRequest>
-where
-    CustomRequest: ReadFromStream + Send + 'static,
-{
+impl IntoSubsystem<Error> for NetworkListener {
     async fn run(mut self, subsys: SubsystemHandle) -> Result<()> {
         if let Ok(result) = self.listen().cancel_on_shutdown(&subsys).await {
             result?
@@ -210,6 +290,31 @@ where
 
         Ok(())
     }
+}
+
+async fn read_from_stream<S: AsyncRead + Unpin + Send>(stream: &mut S) -> Result<ClientMessage> {
+    let message_type = stream.read_u8().await?;
+    let payload_length = stream.read_u32_le().await?;
+
+    if payload_length == 0 {
+        return Ok(Message::new(message_type, vec![]).try_into()?);
+    }
+
+    let mut message = vec![0; payload_length as usize];
+    stream.read_exact(&mut message).await?;
+
+    Ok(Message::new(message_type, message).try_into()?)
+}
+
+async fn write_to_stream<S: AsyncWrite + Unpin + Send>(
+    stream: &mut S,
+    message: impl Into<Message>,
+) -> Result<()> {
+    let message: Message = message.into();
+    stream.write_all(&message.into_bytes()).await?;
+    stream.flush().await?;
+
+    Ok(())
 }
 
 #[derive(Debug, Error)]
@@ -233,21 +338,44 @@ pub enum BuilderError {
 
 pub type BuilderResult<T> = result::Result<T, BuilderError>;
 
+/// Builder for [`NetworkListener`].
+///
+/// This allows configuring the address, TLS certificates, client registry,
+/// message channels, and custom request handlers.
+///
+/// # Examples
+///
+/// ```
+/// use std::sync::Arc;
+/// use tokio::sync::{broadcast, RwLock};
+/// use tokio::sync::mpsc;
+/// use bloop_server_framework::network::NetworkListenerBuilder;
+///
+/// let (engine_tx, engine_rx) = mpsc::channel(512);
+/// let (event_tx, event_rx) = broadcast::channel(512);
+///
+/// let builder = NetworkListenerBuilder::new()
+///     .address("127.0.0.1:12345")
+///     .clients(Arc::new(RwLock::new(Default::default())))
+///     .engine_tx(engine_tx)
+///     .event_tx(event_tx)
+///     .cert_path("examples/cert.pem")
+///     .key_path("examples/key.pem")
+///     .build()
+///     .unwrap();
+/// ```
 #[derive(Debug, Default)]
-pub struct NetworkListenerBuilder<CustomRequest>
-where
-    CustomRequest: ReadFromStream + Send + 'static,
-{
+pub struct NetworkListenerBuilder {
     address: Option<String>,
     cert_path: Option<PathBuf>,
     key_path: Option<PathBuf>,
     clients: Option<Arc<RwLock<ClientRegistry>>>,
-    engine_tx: Option<mpsc::Sender<(EngineRequest, oneshot::Sender<StandardResponse>)>>,
+    engine_tx: Option<mpsc::Sender<(EngineRequest, oneshot::Sender<ServerMessage>)>>,
     event_tx: Option<broadcast::Sender<Event>>,
-    custom_req_tx: Option<mpsc::Sender<CustomRequestMessage<CustomRequest>>>,
+    custom_req_tx: Option<mpsc::Sender<CustomRequestMessage>>,
 }
 
-impl NetworkListenerBuilder<NoopCustomRequest> {
+impl NetworkListenerBuilder {
     pub fn new() -> Self {
         Self {
             address: None,
@@ -260,13 +388,10 @@ impl NetworkListenerBuilder<NoopCustomRequest> {
         }
     }
 
-    pub fn custom_req_tx<C>(
+    pub fn custom_req_tx(
         self,
-        custom_req_tx: mpsc::Sender<CustomRequestMessage<C>>,
-    ) -> NetworkListenerBuilder<C>
-    where
-        C: ReadFromStream + Send + 'static,
-    {
+        custom_req_tx: mpsc::Sender<CustomRequestMessage>,
+    ) -> NetworkListenerBuilder {
         NetworkListenerBuilder {
             clients: self.clients,
             address: self.address,
@@ -277,12 +402,7 @@ impl NetworkListenerBuilder<NoopCustomRequest> {
             custom_req_tx: Some(custom_req_tx),
         }
     }
-}
 
-impl<CustomRequest> NetworkListenerBuilder<CustomRequest>
-where
-    CustomRequest: ReadFromStream + Send + 'static,
-{
     pub fn address(mut self, address: impl Into<String>) -> Self {
         self.address = Some(address.into());
         self
@@ -305,7 +425,7 @@ where
 
     pub fn engine_tx(
         mut self,
-        tx: mpsc::Sender<(EngineRequest, oneshot::Sender<StandardResponse>)>,
+        tx: mpsc::Sender<(EngineRequest, oneshot::Sender<ServerMessage>)>,
     ) -> Self {
         self.engine_tx = Some(tx);
         self
@@ -316,7 +436,10 @@ where
         self
     }
 
-    pub fn build(self) -> BuilderResult<NetworkListener<CustomRequest>> {
+    /// Builds the [`NetworkListener`] from the provided configuration.
+    ///
+    /// Returns an error if required fields are missing, or TLS setup fails.
+    pub fn build(self) -> BuilderResult<NetworkListener> {
         let addr: SocketAddr = self
             .address
             .ok_or_else(|| BuilderError::MissingField("address"))?
@@ -366,102 +489,119 @@ where
     }
 }
 
-async fn handle_connection<S, C>(
-    stream: &mut S,
-    client_id: String,
-    engine_tx: mpsc::Sender<(EngineRequest, oneshot::Sender<StandardResponse>)>,
-    custom_req_tx: Option<mpsc::Sender<CustomRequestMessage<C>>>,
+/// Handles an authenticated client connection.
+///
+/// Reads client messages from the stream, dispatches them to the appropriate
+/// handlers, and sends back server responses.
+async fn handle_connection<R, W>(
+    reader: &mut R,
+    writer: &mut W,
+    client_id: &str,
+    engine_tx: mpsc::Sender<(EngineRequest, oneshot::Sender<ServerMessage>)>,
+    custom_req_tx: Option<mpsc::Sender<CustomRequestMessage>>,
 ) -> Result<()>
 where
-    S: AsyncRead + AsyncWrite + Unpin + Send,
-    C: ReadFromStream,
+    R: AsyncRead + Unpin + Send,
+    W: AsyncWrite + Unpin + Send,
 {
-    let mut stream = TimeoutStream::new(stream);
-    stream.set_read_timeout(Some(Duration::from_secs(30)));
-    stream.set_write_timeout(Some(Duration::from_secs(30)));
-    pin!(stream);
-
     loop {
-        let request = match StandardRequest::from_stream(&mut stream).await {
-            Ok(request) => request,
-            Err(Error::UnknownRequest(code)) => {
-                let request = C::from_stream(code, &mut stream).await?;
+        let message = match timeout(Duration::from_secs(30), read_from_stream(reader)).await {
+            Ok(Ok(message)) => message,
+            Ok(Err(error)) => return Err(error),
+            Err(_) => return Ok(()),
+        };
 
+        let engine_request = match message {
+            ClientMessage::Bloop { nfc_uid } => EngineRequest::Bloop {
+                nfc_uid,
+                client_id: client_id.to_string(),
+            },
+            ClientMessage::RetrieveAudio { achievement_id } => {
+                EngineRequest::RetrieveAudio { id: achievement_id }
+            }
+            ClientMessage::PreloadCheck {
+                audio_manifest_hash,
+            } => EngineRequest::PreloadCheck {
+                manifest_hash: audio_manifest_hash,
+            },
+            ClientMessage::Ping => {
+                write_to_stream(writer, ServerMessage::Pong).await?;
+                continue;
+            }
+            ClientMessage::Quit => break,
+            ClientMessage::Unknown(message) => {
                 if let Some(sender) = custom_req_tx.as_ref() {
                     let (resp_tx, resp_rx) = oneshot::channel();
 
                     let _ = sender
                         .send(CustomRequestMessage {
-                            client_id: client_id.clone(),
-                            request,
+                            client_id: client_id.to_string(),
+                            message,
                             response: resp_tx,
                         })
                         .await;
 
-                    let response = resp_rx.await?;
-                    response.send(&mut stream).await?;
+                    if let Some(message) = resp_rx.await? {
+                        write_to_stream(writer, message).await?;
+                    }
                 }
 
                 continue;
             }
-            Err(err) => return Err(err),
-        };
-
-        let engine_request = match request {
-            StandardRequest::Bloop { nfc_uid } => EngineRequest::Bloop {
-                nfc_uid,
-                client_id: client_id.clone(),
-            },
-            StandardRequest::PreloadCheck { state_hash } => {
-                EngineRequest::PreloadCheck { state_hash }
-            }
-            StandardRequest::RetrieveAudio { id } => EngineRequest::RetrieveAudio { id },
-            StandardRequest::Ping => {
-                StandardResponse::Pong.send(&mut stream).await?;
-                continue;
-            }
-            StandardRequest::Quit => break,
-            _ => return Err(Error::UnexpectedMessage),
+            message => return Err(Error::UnexpectedMessage(message)),
         };
 
         let (resp_tx, resp_rx) = oneshot::channel();
         let _ = engine_tx.send((engine_request, resp_tx)).await;
         let response = resp_rx.await?;
-        response.send(&mut stream).await?;
+
+        write_to_stream(writer, response).await?;
     }
 
     Ok(())
 }
 
-async fn authenticate<S: AsyncRead + AsyncWrite + Unpin + Send>(
-    stream: &mut S,
+/// Authenticates a client by performing handshake and credential verification.
+///
+/// Returns the client ID, its IP address, and the negotiated protocol version
+/// on success.
+async fn authenticate<R, W>(
+    reader: &mut R,
+    writer: &mut W,
     clients: Arc<RwLock<ClientRegistry>>,
-) -> Result<(String, IpAddr, u8)> {
-    StandardResponse::VersionNegotiation { min: 3, max: 3 }
-        .send(stream)
-        .await?;
-
-    let StandardRequest::VersionNegotiation { version } =
-        StandardRequest::from_stream(stream).await?
-    else {
-        return Err(Error::UnexpectedMessage);
+) -> Result<(String, IpAddr, u8)>
+where
+    R: AsyncRead + Unpin + Send,
+    W: AsyncWrite + Unpin + Send,
+{
+    let (min_version, max_version) = match read_from_stream(reader).await? {
+        ClientMessage::ClientHandshake {
+            min_version,
+            max_version,
+        } => (min_version, max_version),
+        message => return Err(Error::UnexpectedMessage(message)),
     };
 
-    if version != 3 {
-        return Err(Error::UnsupportedVersion(version));
+    if min_version > 3 || max_version < 3 {
+        return Err(Error::UnsupportedVersion(min_version, max_version));
     }
 
-    StandardResponse::VersionAccepted { version }
-        .send(stream)
-        .await?;
+    write_to_stream(
+        writer,
+        ServerMessage::ServerHandshake {
+            accepted_version: 3,
+            features: ServerFeatures::PreloadCheck,
+        },
+    )
+    .await?;
 
-    let StandardRequest::Authentication {
-        client_id,
-        secret,
-        ip_address,
-    } = StandardRequest::from_stream(stream).await?
-    else {
-        return Err(Error::UnexpectedMessage);
+    let (client_id, client_secret, ip_addr) = match read_from_stream(reader).await? {
+        ClientMessage::Authentication {
+            client_id,
+            client_secret,
+            ip_addr,
+        } => (client_id, client_secret, ip_addr),
+        message => return Err(Error::UnexpectedMessage(message)),
     };
 
     let clients = clients.read().await;
@@ -470,285 +610,236 @@ async fn authenticate<S: AsyncRead + AsyncWrite + Unpin + Send>(
     };
 
     if Argon2::default()
-        .verify_password(secret.as_bytes(), &secret_hash.password_hash())
+        .verify_password(client_secret.as_bytes(), &secret_hash.password_hash())
         .is_err()
     {
         return Err(Error::InvalidCredentials);
     }
 
-    StandardResponse::AuthenticationAccepted
-        .send(stream)
-        .await?;
-    Ok((client_id.to_string(), ip_address, version))
+    write_to_stream(writer, ServerMessage::AuthenticationAccepted).await?;
+
+    Ok((client_id.to_string(), ip_addr, 3))
 }
 
-#[async_trait]
-pub trait WriteToStream: Send + Sync + Debug + 'static {
-    async fn send(self: Box<Self>, stream: &mut (dyn AsyncWrite + Unpin + Send)) -> io::Result<()>;
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
 
-#[async_trait]
-pub trait ReadFromStream
-where
-    Self: Sized,
-{
-    async fn from_stream<S: AsyncRead + Unpin + Send>(code: u8, stream: &mut S) -> Result<Self>;
-}
-
-pub struct NoopCustomRequest;
-
-#[async_trait]
-impl ReadFromStream for NoopCustomRequest {
-    async fn from_stream<S: AsyncRead + Unpin + Send>(code: u8, _stream: &mut S) -> Result<Self> {
-        Err(Error::UnknownRequest(code))
+    #[tokio::test]
+    async fn builder_fails_with_missing_fields() {
+        let builder = NetworkListenerBuilder::new();
+        let result = builder.build();
+        assert!(matches!(result, Err(BuilderError::MissingField(_))));
     }
-}
 
-#[derive(Debug)]
-pub enum StandardRequest {
-    VersionNegotiation {
-        version: u8,
-    },
-    Authentication {
-        client_id: String,
-        secret: String,
-        ip_address: IpAddr,
-    },
-    Bloop {
-        nfc_uid: NfcUid,
-    },
-    RetrieveAudio {
-        id: Uuid,
-    },
-    PreloadCheck {
-        state_hash: Option<Vec<u8>>,
-    },
-    Ping,
-    Quit,
-    Unknown(u8),
-    Malformed,
-}
+    #[tokio::test]
+    async fn builder_fails_with_invalid_address() {
+        let builder = NetworkListenerBuilder::new()
+            .address("invalid-addr")
+            .cert_path("cert.pem")
+            .key_path("key.pem")
+            .clients(Arc::new(RwLock::new(Default::default())))
+            .engine_tx(dummy_engine_tx())
+            .event_tx(dummy_event_tx());
 
-impl StandardRequest {
-    async fn from_stream<S: AsyncRead + Unpin>(stream: &mut S) -> Result<Self> {
-        let code = stream.read_u8().await?;
+        let result = builder.build();
+        assert!(matches!(result, Err(BuilderError::AddrParse(_))));
+    }
 
-        match code {
-            0x01 => {
-                let version = stream.read_u8().await?;
-                Ok(Self::VersionNegotiation { version })
-            }
-            0x03 => {
-                let client_id_length = stream.read_u8().await? as usize;
-                let mut client_id = vec![0u8; client_id_length];
-                stream.read_exact(&mut client_id).await?;
-                let Ok(client_id) = String::from_utf8(client_id) else {
-                    return Err(Error::MalformedRequest(
-                        "invalid UTF-8 client ID".to_string(),
-                    ));
-                };
+    #[tokio::test]
+    async fn builder_fails_on_invalid_pem_files() {
+        let dir = tempdir().unwrap();
+        let cert_path = dir.path().join("cert.pem");
+        let key_path = dir.path().join("key.pem");
+        fs::write(&cert_path, b"invalid-cert").unwrap();
+        fs::write(&key_path, b"invalid-key").unwrap();
 
-                let secret_length = stream.read_u8().await? as usize;
-                let mut secret = vec![0u8; secret_length];
-                stream.read_exact(&mut secret).await?;
-                let Ok(secret) = String::from_utf8(secret) else {
-                    return Err(Error::MalformedRequest(
-                        "invalid UTF-8 client secret".to_string(),
-                    ));
-                };
+        let builder = NetworkListenerBuilder::new()
+            .address("127.0.0.1:12345")
+            .cert_path(&cert_path)
+            .key_path(&key_path)
+            .clients(Arc::new(RwLock::new(Default::default())))
+            .engine_tx(dummy_engine_tx())
+            .event_tx(dummy_event_tx());
 
-                let inet_version = stream.read_u8().await?;
-                let ip_address = match inet_version {
-                    4 => {
-                        let mut local_ip = [0; 4];
-                        stream.read_exact(&mut local_ip).await?;
-                        IpAddr::from(local_ip)
-                    }
-                    6 => {
-                        let mut local_ip = [0; 16];
-                        stream.read_exact(&mut local_ip).await?;
-                        IpAddr::from(local_ip)
-                    }
-                    _ => {
-                        return Err(Error::MalformedRequest(format!(
-                            "unknown INET version: {inet_version}",
-                        )));
-                    }
-                };
+        let result = builder.build();
+        assert!(matches!(result, Err(BuilderError::Pem { .. })));
+    }
 
-                Ok(Self::Authentication {
-                    client_id,
-                    secret,
-                    ip_address,
-                })
-            }
-            0x04 => {
-                let mut uid = [0; 7];
-                stream.read_exact(&mut uid).await?;
+    #[tokio::test]
+    async fn builder_succeeds_with_valid_dummy_pem() {
+        let dir = tempdir().unwrap();
+        let cert_path = dir.path().join("cert.pem");
+        let key_path = dir.path().join("key.pem");
 
-                Ok(Self::Bloop {
-                    nfc_uid: NfcUid(uid),
-                })
-            }
-            0x05 => {
-                let mut id = [0; 16];
-                stream.read_exact(&mut id).await?;
+        let cert_data = include_bytes!("../examples/cert.pem");
+        let key_data = include_bytes!("../examples/key.pem");
 
-                Ok(Self::RetrieveAudio {
-                    id: Uuid::from_bytes(id),
-                })
-            }
-            0x06 => {
-                let hash_length = stream.read_u32_le().await? as usize;
+        fs::write(&cert_path, cert_data).unwrap();
+        fs::write(&key_path, key_data).unwrap();
 
-                if hash_length == 0 {
-                    return Ok(Self::PreloadCheck { state_hash: None });
-                }
+        let builder = NetworkListenerBuilder::new()
+            .address("127.0.0.1:12345")
+            .cert_path(&cert_path)
+            .key_path(&key_path)
+            .clients(Arc::new(RwLock::new(Default::default())))
+            .engine_tx(dummy_engine_tx())
+            .event_tx(dummy_event_tx());
 
-                let mut hash = vec![0u8; hash_length];
-                stream.read_exact(&mut hash).await?;
+        let result = builder.build();
+        assert!(result.is_ok());
+    }
 
-                Ok(Self::PreloadCheck {
-                    state_hash: Some(hash),
-                })
-            }
-            0x07 => Ok(Self::Ping),
-            0x08 => Ok(Self::Quit),
-            code => Err(Error::UnknownRequest(code)),
+    #[tokio::test]
+    async fn authentication_fails_with_wrong_client_id() {
+        let clients = Arc::new(RwLock::new(Default::default()));
+
+        let client_handshake = build_handshake(3, 3);
+        let authentication = build_authentication("unknown-client", "password", "127.0.0.1");
+
+        let server_handshake: Message = ServerMessage::ServerHandshake {
+            accepted_version: 3,
+            features: ServerFeatures::PreloadCheck,
         }
+        .into();
+
+        let mut reader = tokio_test::io::Builder::new()
+            .read(&client_handshake)
+            .read(&authentication)
+            .build();
+        let mut writer = tokio_test::io::Builder::new()
+            .write(&server_handshake.into_bytes())
+            .build();
+
+        let result = authenticate(&mut reader, &mut writer, clients).await;
+
+        assert!(matches!(result, Err(Error::InvalidCredentials)));
     }
-}
 
-#[derive(Debug)]
-pub struct AchievementResponse {
-    pub id: Uuid,
-    pub audio_hash: md5::Digest,
-}
+    #[tokio::test]
+    async fn authentication_succeeds_with_correct_credentials() {
+        let clients = Arc::new(RwLock::new(HashMap::default()));
+        clients.write().await.insert(
+            "client".into(),
+            PasswordHashString::new(
+                "$argon2id$v=19$m=10,t=1,p=1$THh0RHE5YWNkQUZNa2lqUA$dmB4X7J49jjCGA",
+            )
+            .unwrap(),
+        );
 
-impl AchievementResponse {
-    async fn send<S: AsyncWrite + Unpin + Send>(self, stream: &mut S) -> io::Result<()> {
-        stream.write_all(self.id.as_bytes()).await?;
-        stream.write_all(self.audio_hash.as_slice()).await?;
+        let client_handshake = build_handshake(3, 3);
+        let authentication = build_authentication("client", "secret", "127.0.0.1");
 
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-pub enum ErrorResponse {
-    UnexpectedMessage,
-    MalformedMessage,
-    UnsupportedVersion,
-    InvalidCredentials,
-    UnknownNfcUid,
-    NfcUidThrottled,
-    UnknownAchievementId,
-    Custom(u8),
-}
-
-impl ErrorResponse {
-    async fn send<S: AsyncWrite + Unpin + Send>(self, stream: &mut S) -> io::Result<()> {
-        match self {
-            Self::UnexpectedMessage => stream.write_u8(0).await?,
-            Self::MalformedMessage => stream.write_u8(1).await?,
-            Self::UnsupportedVersion => stream.write_u8(2).await?,
-            Self::InvalidCredentials => stream.write_u8(3).await?,
-            Self::UnknownNfcUid => stream.write_u8(4).await?,
-            Self::NfcUidThrottled => stream.write_u8(5).await?,
-            Self::UnknownAchievementId => stream.write_u8(6).await?,
-            Self::Custom(code) => stream.write_u8(code).await?,
+        let server_handshake: Message = ServerMessage::ServerHandshake {
+            accepted_version: 3,
+            features: ServerFeatures::PreloadCheck,
         }
+        .into();
 
-        Ok(())
-    }
-}
+        let authentication_accepted: Message = ServerMessage::AuthenticationAccepted.into();
 
-#[derive(Debug)]
-pub enum StandardResponse {
-    Error(ErrorResponse),
-    VersionNegotiation {
-        min: u8,
-        max: u8,
-    },
-    VersionAccepted {
-        version: u8,
-    },
-    AuthenticationAccepted,
-    BloopRecorded {
-        achievements: Vec<AchievementResponse>,
-    },
-    Audio {
-        data: Vec<u8>,
-    },
-    PreloadStateMatch,
-    PreloadStateMismatch {
-        state_hash: Vec<u8>,
-        achievements: Vec<AchievementResponse>,
-    },
-    Pong,
-    Custom(Box<dyn WriteToStream>),
-}
+        let mut reader = tokio_test::io::Builder::new()
+            .read(&client_handshake)
+            .read(&authentication)
+            .build();
+        let mut writer = tokio_test::io::Builder::new()
+            .write(&server_handshake.into_bytes())
+            .write(&authentication_accepted.into_bytes())
+            .build();
 
-impl StandardResponse {
-    pub fn new_custom<T: WriteToStream>(response: T) -> StandardResponse {
-        StandardResponse::Custom(Box::new(response))
+        let result = authenticate(&mut reader, &mut writer, clients).await;
+        println!("{:?}", result);
+
+        assert!(result.is_ok());
     }
 
-    async fn send<S: AsyncWrite + Unpin + Send>(self, stream: &mut S) -> io::Result<()> {
-        match self {
-            Self::Error(error) => {
-                stream.write_u8(0x00).await?;
-                error.send(stream).await?
-            }
-            Self::VersionNegotiation { min, max } => {
-                stream.write_u8(0x01).await?;
-                stream.write_u8(min).await?;
-                stream.write_u8(max).await?;
-            }
-            Self::VersionAccepted { version } => {
-                stream.write_u8(0x02).await?;
-                stream.write_u8(version).await?;
-            }
-            Self::AuthenticationAccepted => {
-                stream.write_u8(0x03).await?;
-            }
-            Self::BloopRecorded { achievements } => {
-                stream.write_u8(0x04).await?;
-                stream.write_u8(achievements.len() as u8).await?;
+    #[tokio::test]
+    async fn authentication_fails_with_wrong_password() {
+        let clients = Arc::new(RwLock::new(HashMap::default()));
+        clients.write().await.insert(
+            "client".into(),
+            PasswordHashString::new(
+                "$argon2id$v=19$m=10,t=1,p=1$THh0RHE5YWNkQUZNa2lqUA$dmB4X7J49jjCGA",
+            )
+            .unwrap(),
+        );
 
-                for achievement in achievements {
-                    achievement.send(stream).await?;
-                }
-            }
-            Self::Audio { data } => {
-                stream.write_u8(0x05).await?;
-                stream.write_u32_le(data.len() as u32).await?;
-                stream.write_all(&data).await?;
-            }
-            Self::PreloadStateMatch => stream.write_u8(0x06).await?,
-            Self::PreloadStateMismatch {
-                state_hash,
-                achievements,
-            } => {
-                stream.write_u8(0x07).await?;
-                stream.write_u32_le(state_hash.len() as u32).await?;
-                stream.write_all(&state_hash).await?;
+        let client_handshake = build_handshake(3, 3);
+        let authentication = build_authentication("client1", "wrong-secret", "127.0.0.1");
 
-                stream.write_u32_le(achievements.len() as u32).await?;
+        let server_handshake: Message = ServerMessage::ServerHandshake {
+            accepted_version: 3,
+            features: ServerFeatures::PreloadCheck,
+        }
+        .into();
 
-                for achievement in achievements {
-                    achievement.send(stream).await?;
-                }
+        let mut reader = tokio_test::io::Builder::new()
+            .read(&client_handshake)
+            .read(&authentication)
+            .build();
+        let mut writer = tokio_test::io::Builder::new()
+            .write(&server_handshake.into_bytes())
+            .build();
+
+        let result = authenticate(&mut reader, &mut writer, clients).await;
+
+        assert!(matches!(result, Err(Error::InvalidCredentials)));
+    }
+
+    fn dummy_engine_tx() -> mpsc::Sender<(EngineRequest, oneshot::Sender<ServerMessage>)> {
+        let (tx, _rx) = mpsc::channel(1);
+        tx
+    }
+
+    fn dummy_event_tx() -> broadcast::Sender<Event> {
+        let (tx, _rx) = broadcast::channel(1);
+        tx
+    }
+
+    fn build_handshake(min_version: u8, max_version: u8) -> Vec<u8> {
+        let mut buf = Vec::new();
+        let payload = [min_version, max_version];
+
+        buf.push(0x01);
+        buf.extend(&(payload.len() as u32).to_le_bytes());
+        buf.extend(&payload);
+
+        buf
+    }
+
+    fn build_authentication(client_id: &str, password: &str, ip_addr: &str) -> Vec<u8> {
+        use std::net::IpAddr;
+
+        let mut buf = Vec::new();
+
+        let client_id_bytes = client_id.as_bytes();
+        let password_bytes = password.as_bytes();
+
+        let mut payload = Vec::new();
+        payload.push(client_id_bytes.len() as u8);
+        payload.extend(client_id_bytes);
+
+        payload.push(password_bytes.len() as u8);
+        payload.extend(password_bytes);
+
+        let ip: IpAddr = ip_addr.parse().expect("Invalid IP address");
+        match ip {
+            IpAddr::V4(v4) => {
+                payload.push(4); // IPv4
+                payload.extend(&v4.octets());
             }
-            Self::Pong => {
-                stream.write_u8(0x08).await?;
-            }
-            Self::Custom(response) => {
-                response.send(stream).await?;
+            IpAddr::V6(v6) => {
+                payload.push(6); // IPv6
+                payload.extend(&v6.octets());
             }
         }
 
-        stream.flush().await?;
-        Ok(())
+        buf.push(0x03);
+        buf.extend(&(payload.len() as u32).to_le_bytes());
+        buf.extend(payload);
+
+        buf
     }
 }

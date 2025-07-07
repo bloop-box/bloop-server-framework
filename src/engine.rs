@@ -1,14 +1,14 @@
 use crate::achievement::{Achievement, AchievementAwardBatch, AchievementContext, AwardedTracker};
-use crate::bloop::{Bloop, BloopProvider, ProcessedBloop};
+use crate::bloop::{Bloop, BloopProvider, ProcessedBloop, bloops_since};
 use crate::event::Event;
-use crate::network::{AchievementResponse, ErrorResponse, StandardResponse};
+use crate::message::{AchievementRecord, DataHash, ErrorResponse, ServerMessage};
 use crate::nfc_uid::NfcUid;
 use crate::player::{PlayerInfo, PlayerMutator, PlayerRegistry};
 use crate::trigger::TriggerRegistry;
 #[cfg(feature = "tokio-graceful-shutdown")]
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use md5::Digest;
+use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::fs;
@@ -21,13 +21,29 @@ use tokio::io::AsyncReadExt;
 use tokio::sync::{Mutex, broadcast, mpsc, oneshot};
 #[cfg(feature = "tokio-graceful-shutdown")]
 use tokio_graceful_shutdown::{FutureExt, IntoSubsystem, SubsystemHandle};
-use tracing::warn;
+use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
+#[derive(Debug)]
 pub enum EngineRequest {
     Bloop { client_id: String, nfc_uid: NfcUid },
     RetrieveAudio { id: Uuid },
-    PreloadCheck { state_hash: Option<Vec<u8>> },
+    PreloadCheck { manifest_hash: Option<DataHash> },
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Throttle {
+    max_bloops: usize,
+    threshold: Duration,
+}
+
+impl Throttle {
+    pub fn new(max_bloops: usize, threshold: Duration) -> Self {
+        Self {
+            max_bloops,
+            threshold,
+        }
+    }
 }
 
 struct HotAchievement {
@@ -46,28 +62,29 @@ impl HotAchievement {
     }
 }
 
-pub struct Engine<Player, Metadata, Trigger>
+pub struct Engine<Metadata, Player, State, Trigger>
 where
     Player: PlayerInfo + PlayerMutator,
-    Trigger: Copy + PartialEq + Eq + Debug,
+    Trigger: Copy,
 {
     bloop_provider: BloopProvider<Player>,
-    achievements: HashMap<Uuid, Achievement<Player, Metadata, Trigger>>,
+    achievements: HashMap<Uuid, Achievement<Metadata, Player, State, Trigger>>,
     audio_base_path: PathBuf,
-    audio_hashes: HashMap<Uuid, Digest>,
-    global_hash: Digest,
+    audio_file_hashes: HashMap<Uuid, DataHash>,
+    audio_manifest_hash: DataHash,
     player_registry: Arc<Mutex<PlayerRegistry<Player>>>,
-    metadata: Arc<Mutex<Metadata>>,
+    state: Arc<Mutex<State>>,
     trigger_registry: TriggerRegistry<Trigger>,
     hot_achievements: Vec<HotAchievement>,
-    network_rx: mpsc::Receiver<(EngineRequest, oneshot::Sender<StandardResponse>)>,
+    network_rx: mpsc::Receiver<(EngineRequest, oneshot::Sender<ServerMessage>)>,
     event_tx: broadcast::Sender<Event>,
+    throttle: Option<Throttle>,
 }
 
-impl<Player, Metadata, Trigger> Engine<Player, Metadata, Trigger>
+impl<Metadata, Player, State, Trigger> Engine<Metadata, Player, State, Trigger>
 where
     Player: PlayerInfo + PlayerMutator,
-    Trigger: Copy + PartialEq + Eq + Debug,
+    Trigger: Copy,
 {
     pub async fn process_requests(&mut self) {
         while let Some((request, response)) = self.network_rx.recv().await {
@@ -78,45 +95,65 @@ where
                 EngineRequest::RetrieveAudio { id } => {
                     self.handle_retrieve_audio(id, response);
                 }
-                EngineRequest::PreloadCheck { state_hash } => {
-                    self.handle_preload_check(state_hash, response);
+                EngineRequest::PreloadCheck { manifest_hash } => {
+                    self.handle_preload_check(manifest_hash, response);
                 }
             }
         }
     }
 
+    #[instrument(skip(self, response))]
     async fn handle_bloop(
         &mut self,
         nfc_uid: NfcUid,
         client_id: String,
-        response: oneshot::Sender<StandardResponse>,
+        response: oneshot::Sender<ServerMessage>,
     ) {
         if self
             .trigger_registry
             .try_activate_trigger(nfc_uid, &client_id)
         {
-            let _ = response.send(StandardResponse::BloopRecorded {
+            let _ = response.send(ServerMessage::BloopAccepted {
                 achievements: Vec::new(),
             });
             return;
         }
 
-        let bloop = {
-            let player_maps = self.player_registry.lock().await;
-            let Some(player) = player_maps.by_nfc_uid.get(&nfc_uid) else {
-                let _ = response.send(StandardResponse::Error(ErrorResponse::UnknownNfcUid));
+        let player = {
+            let player_registry = self.player_registry.lock().await;
+            let Some(player) = player_registry.get_by_nfc_uid(nfc_uid) else {
+                let _ = response.send(ServerMessage::Error(ErrorResponse::UnknownNfcUid));
                 return;
             };
-            player.write().unwrap().increment_bloops();
-            Bloop::new(player.clone(), client_id, Utc::now())
+            player
         };
+
+        if let Some(throttle) = self.throttle.as_ref() {
+            let player_id = player.read().unwrap().id();
+
+            let throttled = self
+                .bloop_provider
+                .for_client(&client_id)
+                .iter()
+                .filter(bloops_since(Utc::now() - throttle.threshold))
+                .take(throttle.max_bloops)
+                .all(|bloop| bloop.player_id == player_id);
+
+            if throttled {
+                let _ = response.send(ServerMessage::Error(ErrorResponse::NfcUidThrottled));
+                return;
+            }
+        }
+
+        player.write().unwrap().increment_bloops();
+        let bloop = Bloop::new(player.clone(), client_id, Utc::now());
 
         let mut awarded_tracker = self.evaluate_achievements(&bloop).await;
         self.activate_hot_achievements(&bloop, &awarded_tracker);
         self.inject_hot_achievements(&bloop, &mut awarded_tracker);
 
-        let player_maps = self.player_registry.lock().await;
-        awarded_tracker.remove_duplicates(&player_maps.by_id);
+        let player_registry = self.player_registry.lock().await;
+        awarded_tracker.remove_duplicates(player_registry);
 
         let achievement_ids: Vec<Uuid> = awarded_tracker
             .for_player(bloop.player_id)
@@ -128,12 +165,12 @@ where
         self.bloop_provider.add(Arc::new(bloop));
         let _ = self.event_tx.send(Event::BloopProcessed(processed_bloop));
 
-        let _ = response.send(StandardResponse::BloopRecorded {
+        let _ = response.send(ServerMessage::BloopAccepted {
             achievements: achievement_ids
                 .into_iter()
-                .map(|id| AchievementResponse {
+                .map(|id| AchievementRecord {
                     id,
-                    audio_hash: *self.audio_hashes.get(&id).unwrap(),
+                    audio_file_hash: self.audio_file_hashes.get(&id).cloned(),
                 })
                 .collect(),
         });
@@ -144,7 +181,7 @@ where
             let player = bloop.player();
             player.awarded_achievements().keys().cloned().collect()
         };
-        let metadata = self.metadata.lock().await;
+        let metadata = self.state.lock().await;
         let ctx = AchievementContext::new(
             bloop,
             &self.bloop_provider,
@@ -153,7 +190,7 @@ where
         );
 
         for achievement in self.achievements.values() {
-            if !previous_awarded.contains(&achievement.definition.id) {
+            if !previous_awarded.contains(&achievement.id) {
                 achievement.evaluate(&ctx);
             }
         }
@@ -206,43 +243,41 @@ where
     }
 
     async fn apply_awarded(&self, tracker: AwardedTracker) {
-        let player_maps = self.player_registry.lock().await;
+        let mut player_registry = self.player_registry.lock().await;
         let batch: AchievementAwardBatch = tracker.into();
 
         for player_awards in batch.players.iter() {
-            let Some(player) = player_maps.by_id.get(&player_awards.player_id) else {
-                warn!(
-                    "Player ID {} has been removed from player map",
-                    player_awards.player_id
-                );
-                continue;
-            };
-
-            let mut player = player.write().unwrap();
-
-            for achievement_id in player_awards.achievement_ids.iter() {
-                player.add_awarded_achievement(*achievement_id, batch.awarded_at);
-            }
+            player_registry.mutate_by_id(player_awards.player_id, |player| {
+                for achievement_id in player_awards.achievement_ids.iter() {
+                    player.add_awarded_achievement(*achievement_id, batch.awarded_at);
+                }
+            });
         }
 
         let _ = self.event_tx.send(Event::AchievementsAwarded(batch));
     }
 
-    fn handle_retrieve_audio(&self, id: Uuid, response: oneshot::Sender<StandardResponse>) {
+    #[instrument(skip(self, response))]
+    fn handle_retrieve_audio(&self, id: Uuid, response: oneshot::Sender<ServerMessage>) {
         let Some(achievement) = self.achievements.get(&id) else {
-            let _ = response.send(StandardResponse::Error(ErrorResponse::UnknownAchievementId));
+            info!("Client requested unknown achievement: {}", id);
+            let _ = response.send(ServerMessage::Error(ErrorResponse::AudioUnavailable));
             return;
         };
 
-        let path = self.audio_base_path.join(&achievement.audio_path);
+        let Some(path) = achievement.audio_path.as_ref() else {
+            info!("Client requested audio for audio-less achievement: {}", id);
+            let _ = response.send(ServerMessage::Error(ErrorResponse::AudioUnavailable));
+            return;
+        };
+        let path = self.audio_base_path.join(path);
 
         tokio::spawn(async move {
             let mut file = match File::open(&path).await {
                 Ok(file) => file,
                 Err(err) => {
                     warn!("Failed to open file {:?}: {:?}", &path, err);
-                    let _ =
-                        response.send(StandardResponse::Error(ErrorResponse::UnknownAchievementId));
+                    let _ = response.send(ServerMessage::Error(ErrorResponse::AudioUnavailable));
                     return;
                 }
             };
@@ -251,34 +286,35 @@ where
 
             if let Err(err) = file.read_to_end(&mut data).await {
                 warn!("Failed to read file {:?}: {:?}", &path, err);
-                let _ = response.send(StandardResponse::Error(ErrorResponse::UnknownAchievementId));
+                let _ = response.send(ServerMessage::Error(ErrorResponse::AudioUnavailable));
                 return;
             }
 
-            let _ = response.send(StandardResponse::Audio { data });
+            let _ = response.send(ServerMessage::AudioData { data });
         });
     }
 
+    #[instrument(skip(self, response))]
     fn handle_preload_check(
         &self,
-        state_hash: Option<Vec<u8>>,
-        response: oneshot::Sender<StandardResponse>,
+        manifest_hash: Option<DataHash>,
+        response: oneshot::Sender<ServerMessage>,
     ) {
-        if let Some(ref state_hash) = state_hash {
-            if state_hash.as_slice() == self.global_hash.as_ref() {
-                let _ = response.send(StandardResponse::PreloadStateMatch);
+        if let Some(manifest_hash) = manifest_hash {
+            if manifest_hash == self.audio_manifest_hash {
+                let _ = response.send(ServerMessage::PreloadMatch);
                 return;
             }
         }
 
-        let _ = response.send(StandardResponse::PreloadStateMismatch {
-            state_hash: self.global_hash.to_vec(),
+        let _ = response.send(ServerMessage::PreloadMismatch {
+            audio_manifest_hash: self.audio_manifest_hash,
             achievements: self
                 .achievements
                 .values()
-                .map(|achievement| AchievementResponse {
-                    id: achievement.definition.id,
-                    audio_hash: *self.audio_hashes.get(&achievement.definition.id).unwrap(),
+                .map(|achievement| AchievementRecord {
+                    id: achievement.id,
+                    audio_file_hash: self.audio_file_hashes.get(&achievement.id).cloned(),
                 })
                 .collect(),
         });
@@ -291,10 +327,12 @@ pub enum NeverError {}
 
 #[cfg(feature = "tokio-graceful-shutdown")]
 #[async_trait]
-impl<Player, Metadata, Trigger> IntoSubsystem<NeverError> for Engine<Player, Metadata, Trigger>
+impl<Metadata, Player, State, Trigger> IntoSubsystem<NeverError>
+    for Engine<Metadata, Player, State, Trigger>
 where
-    Player: PlayerInfo + PlayerMutator + Send + Sync + 'static,
     Metadata: Send + Sync + 'static,
+    Player: PlayerInfo + PlayerMutator + Send + Sync + 'static,
+    State: Send + Sync + 'static,
     Trigger: Copy + PartialEq + Eq + Debug + Send + Sync + 'static,
 {
     async fn run(mut self, subsys: SubsystemHandle) -> Result<(), NeverError> {
@@ -309,28 +347,30 @@ pub enum BuilderError {
     MissingField(&'static str),
 }
 
-#[derive(Default)]
-pub struct EngineBuilder<Player, Metadata = (), Trigger = ()>
+#[derive(Debug, Default)]
+pub struct EngineBuilder<Player, State = (), Trigger = (), Metadata = ()>
 where
     Player: PlayerInfo + PlayerMutator,
     Metadata: Default,
-    Trigger: Copy + PartialEq + Eq + Debug,
+    Trigger: Copy,
 {
     bloops: Vec<Bloop<Player>>,
-    achievements: Vec<Achievement<Player, Metadata, Trigger>>,
+    achievements: Vec<Achievement<Metadata, Player, State, Trigger>>,
     bloop_retention: Option<Duration>,
     audio_base_path: Option<PathBuf>,
     player_registry: Option<Arc<Mutex<PlayerRegistry<Player>>>>,
-    metadata: Option<Arc<Mutex<Metadata>>>,
+    state: Option<Arc<Mutex<State>>>,
     trigger_registry: Option<TriggerRegistry<Trigger>>,
-    network_rx: Option<mpsc::Receiver<(EngineRequest, oneshot::Sender<StandardResponse>)>>,
+    network_rx: Option<mpsc::Receiver<(EngineRequest, oneshot::Sender<ServerMessage>)>>,
     event_tx: Option<broadcast::Sender<Event>>,
+    throttle: Option<Throttle>,
 }
 
-impl<Player, Metadata, Trigger> EngineBuilder<Player, Metadata, Trigger>
+impl<Player, State, Trigger, Metadata> EngineBuilder<Player, State, Trigger, Metadata>
 where
     Player: PlayerInfo + PlayerMutator,
     Metadata: Default,
+    State: Default,
     Trigger: Copy + PartialEq + Eq + Debug,
 {
     pub fn new() -> Self {
@@ -340,10 +380,11 @@ where
             bloop_retention: None,
             audio_base_path: None,
             player_registry: None,
-            metadata: None,
+            state: None,
             trigger_registry: None,
             network_rx: None,
             event_tx: None,
+            throttle: None,
         }
     }
 
@@ -354,7 +395,7 @@ where
 
     pub fn achievements(
         mut self,
-        achievements: Vec<Achievement<Player, Metadata, Trigger>>,
+        achievements: Vec<Achievement<Metadata, Player, State, Trigger>>,
     ) -> Self {
         self.achievements = achievements;
         self
@@ -375,8 +416,8 @@ where
         self
     }
 
-    pub fn metadata(mut self, metadata: Arc<Mutex<Metadata>>) -> Self {
-        self.metadata = Some(metadata);
+    pub fn metadata(mut self, metadata: Arc<Mutex<State>>) -> Self {
+        self.state = Some(metadata);
         self
     }
 
@@ -387,7 +428,7 @@ where
 
     pub fn network_rx(
         mut self,
-        rx: mpsc::Receiver<(EngineRequest, oneshot::Sender<StandardResponse>)>,
+        rx: mpsc::Receiver<(EngineRequest, oneshot::Sender<ServerMessage>)>,
     ) -> Self {
         self.network_rx = Some(rx);
         self
@@ -398,8 +439,13 @@ where
         self
     }
 
+    pub fn throttle(mut self, throttle: Throttle) -> Self {
+        self.throttle = Some(throttle);
+        self
+    }
+
     /// Consumes the builder and constructs the Engine.
-    pub fn build(self) -> Result<Engine<Player, Metadata, Trigger>, BuilderError> {
+    pub fn build(self) -> Result<Engine<Metadata, Player, State, Trigger>, BuilderError> {
         let bloop_retention = self
             .bloop_retention
             .ok_or(BuilderError::MissingField("bloop_retention"))?;
@@ -419,13 +465,10 @@ where
         let (audio_hashes, global_hash) =
             collect_audio_hashes(&audio_base_path, &self.achievements);
         let bloop_provider = BloopProvider::with_bloops(bloop_retention, self.bloops);
-        let achievements: HashMap<Uuid, Achievement<Player, Metadata, Trigger>> = self
-            .achievements
-            .into_iter()
-            .map(|a| (a.definition.id, a))
-            .collect();
-        let metadata = self
-            .metadata
+        let achievements: HashMap<Uuid, Achievement<Metadata, Player, State, Trigger>> =
+            self.achievements.into_iter().map(|a| (a.id, a)).collect();
+        let state = self
+            .state
             .unwrap_or_else(|| Arc::new(Mutex::new(Default::default())));
         let trigger_registry = self
             .trigger_registry
@@ -436,42 +479,209 @@ where
             bloop_provider,
             achievements,
             audio_base_path,
-            audio_hashes,
-            global_hash,
+            audio_file_hashes: audio_hashes,
+            audio_manifest_hash: global_hash,
             player_registry,
-            metadata,
+            state,
             trigger_registry,
             hot_achievements,
             network_rx,
             event_tx,
+            throttle: self.throttle,
         })
     }
 }
 
-fn collect_audio_hashes<Player, Metadata, Trigger: Copy + PartialEq + Eq + Debug>(
+fn collect_audio_hashes<Metadata, Player, State, Trigger>(
     audio_base_path: &Path,
-    achievements: &[Achievement<Player, Metadata, Trigger>],
-) -> (HashMap<Uuid, Digest>, Digest) {
-    let audio_hashes: HashMap<Uuid, Digest> = achievements
+    achievements: &[Achievement<Metadata, Player, State, Trigger>],
+) -> (HashMap<Uuid, DataHash>, DataHash) {
+    let audio_file_hashes: HashMap<Uuid, DataHash> = achievements
         .iter()
-        .map(|achievement| {
-            let path = audio_base_path.join(&achievement.audio_path);
-            let file_content = fs::read(path).unwrap_or_default();
+        .filter_map(|achievement| {
+            let path = achievement.audio_path.as_ref()?;
+            let path = audio_base_path.join(path);
+
+            let Ok(file_content) = fs::read(path.clone()) else {
+                warn!("Audio file missing: {:?}", path);
+                return None;
+            };
+
             let digest = md5::compute(file_content);
-            (achievement.definition.id, digest)
+
+            Some((achievement.id, digest.into()))
         })
         .collect();
 
-    let mut entries: Vec<_> = audio_hashes.iter().collect();
+    let mut entries: Vec<_> = audio_file_hashes.iter().collect();
     entries.sort_by_key(|(id, _)| *id);
     let mut hash_input = Vec::with_capacity(entries.len() * 32);
 
     for (id, hash) in entries {
         hash_input.extend(id.as_bytes());
-        hash_input.extend_from_slice(&hash.0);
+        hash_input.extend_from_slice(hash.as_bytes());
     }
 
-    let global_hash = md5::compute(hash_input);
+    let manifest_hash = md5::compute(hash_input);
 
-    (audio_hashes, global_hash)
+    (audio_file_hashes, manifest_hash.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::MockPlayer;
+    use crate::trigger::{TriggerOccurrence, TriggerSpec};
+
+    fn build_test_engine() -> Engine<(), MockPlayer, (), ()> {
+        let player_registry = Arc::new(Mutex::new(PlayerRegistry::new(vec![])));
+        let trigger_registry = TriggerRegistry::new(HashMap::new());
+
+        EngineBuilder::<MockPlayer, (), (), ()>::new()
+            .bloop_retention(Duration::from_secs(3600))
+            .audio_base_path("./audio")
+            .player_registry(player_registry)
+            .trigger_registry(trigger_registry)
+            .network_rx(mpsc::channel(1).1)
+            .event_tx(broadcast::channel(16).0)
+            .build()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn handle_bloop_rejects_unknown_nfc_uid() {
+        let mut engine = build_test_engine();
+        let unknown_nfc_uid = NfcUid::default();
+        let client_id = "test-client".to_string();
+
+        let (resp_tx, resp_rx) = oneshot::channel();
+        engine
+            .handle_bloop(unknown_nfc_uid, client_id.clone(), resp_tx)
+            .await;
+
+        let response = resp_rx.await.unwrap();
+        match response {
+            ServerMessage::Error(err) => {
+                assert!(matches!(err, ErrorResponse::UnknownNfcUid));
+            }
+            _ => panic!("Expected Error response for unknown NFC UID"),
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_bloop_accepts_known_player() {
+        let mut engine = build_test_engine();
+        let nfc_uid = NfcUid::default();
+        let client_id = "test-client".to_string();
+
+        {
+            let mut registry = engine.player_registry.lock().await;
+            let (player, _) = MockPlayer::builder().nfc_uid(nfc_uid).build();
+            registry.add(Arc::into_inner(player).unwrap().into_inner().unwrap());
+        }
+
+        let (resp_tx, resp_rx) = oneshot::channel();
+        engine
+            .handle_bloop(nfc_uid, client_id.clone(), resp_tx)
+            .await;
+
+        let response = resp_rx.await.unwrap();
+        match response {
+            ServerMessage::BloopAccepted { achievements } => {
+                assert!(achievements.is_empty());
+            }
+            _ => panic!("Expected BloopAccepted response"),
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_bloop_activates_trigger_and_responds() {
+        let mut trigger_registry = HashMap::new();
+        trigger_registry.insert(
+            NfcUid::default(),
+            TriggerSpec {
+                trigger: (),
+                global: false,
+                occurrence: TriggerOccurrence::Once,
+            },
+        );
+        let trigger_registry = TriggerRegistry::new(trigger_registry);
+
+        let player_registry = Arc::new(Mutex::new(PlayerRegistry::new(vec![])));
+
+        let (_tx, rx) = mpsc::channel(1);
+        let (evt_tx, _) = broadcast::channel(16);
+
+        let mut engine = EngineBuilder::<MockPlayer, (), (), ()>::new()
+            .bloop_retention(Duration::from_secs(3600))
+            .audio_base_path("./audio")
+            .player_registry(player_registry)
+            .trigger_registry(trigger_registry)
+            .network_rx(rx)
+            .event_tx(evt_tx)
+            .build()
+            .unwrap();
+
+        let nfc_uid = NfcUid::default();
+        let client_id = "client".to_string();
+        let (resp_tx, resp_rx) = oneshot::channel();
+
+        engine
+            .handle_bloop(nfc_uid, client_id.clone(), resp_tx)
+            .await;
+
+        let response = resp_rx.await.unwrap();
+        match response {
+            ServerMessage::BloopAccepted { achievements } => {
+                assert!(achievements.is_empty());
+            }
+            _ => panic!("Expected BloopAccepted response"),
+        }
+
+        assert!(
+            engine
+                .trigger_registry
+                .check_active_trigger((), "client", Utc::now())
+        );
+    }
+
+    #[tokio::test]
+    async fn handle_bloop_respects_throttling() {
+        let mut engine = build_test_engine();
+        let nfc_uid = NfcUid::default();
+        let client_id = "test-client".to_string();
+
+        {
+            let mut registry = engine.player_registry.lock().await;
+            let (player, _) = MockPlayer::builder().nfc_uid(nfc_uid).build();
+            registry.add(Arc::into_inner(player).unwrap().into_inner().unwrap());
+        }
+
+        engine.throttle = Some(Throttle::new(1, Duration::from_secs(10)));
+
+        let bloop = Bloop::new(
+            engine
+                .player_registry
+                .lock()
+                .await
+                .get_by_nfc_uid(nfc_uid)
+                .unwrap(),
+            client_id.clone(),
+            Utc::now(),
+        );
+        engine.bloop_provider.add(Arc::new(bloop));
+
+        let (resp_tx, resp_rx) = oneshot::channel();
+        engine
+            .handle_bloop(nfc_uid, client_id.clone(), resp_tx)
+            .await;
+
+        let response = resp_rx.await.unwrap();
+        match response {
+            ServerMessage::Error(err) => {
+                assert!(matches!(err, ErrorResponse::NfcUidThrottled));
+            }
+            _ => panic!("Expected throttling error"),
+        }
+    }
 }

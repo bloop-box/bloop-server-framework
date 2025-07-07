@@ -365,6 +365,7 @@ impl<T: HealthReportSender> HealthMonitorBuilder<T> {
 /// as connections, disconnections, and connection losses. It periodically
 /// checks client states and sends health reports using the configured
 /// [`HealthReportSender`].
+#[derive(Debug)]
 pub struct HealthMonitor<T: HealthReportSender> {
     sender: T,
     event_rx: broadcast::Receiver<Event>,
@@ -610,8 +611,8 @@ impl<T: HealthReportSender + Send + Sync + 'static> IntoSubsystem<NeverError> fo
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::event::Event;
-    use crate::health_monitor::{Health, HealthMonitorBuilder, HealthReport, HealthReportSender};
     use async_trait::async_trait;
     use ntest::timeout;
     use std::convert::Infallible;

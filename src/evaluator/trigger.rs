@@ -1,5 +1,5 @@
 use crate::achievement::AchievementContext;
-use crate::evaluator::SingleEvaluator;
+use crate::evaluator::{EvalResult, Evaluator};
 use std::fmt::Debug;
 
 /// Evaluates whether a specific trigger is active for the current player.
@@ -8,17 +8,11 @@ use std::fmt::Debug;
 /// [`TriggerRegistry`]. It can be used to award achievements to players via
 /// special trigger NFC tags.
 #[derive(Debug)]
-pub struct TriggerEvaluator<Trigger>
-where
-    Trigger: Copy + PartialEq + Eq + Debug,
-{
+pub struct TriggerEvaluator<Trigger: PartialEq + Copy> {
     trigger: Trigger,
 }
 
-impl<Trigger> TriggerEvaluator<Trigger>
-where
-    Trigger: Copy + PartialEq + Eq + Debug,
-{
+impl<Trigger: PartialEq + Copy> TriggerEvaluator<Trigger> {
     /// Creates a new `TriggerEvaluator` for the specified trigger.
     ///
     /// # Examples
@@ -26,7 +20,7 @@ where
     /// ```
     /// use bloop_server_framework::evaluator::trigger::TriggerEvaluator;
     ///
-    /// #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    /// #[derive(Copy, Clone, PartialEq)]
     /// enum MyTrigger {
     ///     CompletedTutorial,
     /// }
@@ -38,23 +32,25 @@ where
     }
 }
 
-impl<Player, Metadata, Trigger> SingleEvaluator<Player, Metadata, Trigger>
-    for TriggerEvaluator<Trigger>
+impl<Player, Metadata, Trigger> Evaluator<Player, Metadata, Trigger> for TriggerEvaluator<Trigger>
 where
-    Trigger: Copy + PartialEq + Eq + Debug + Send + Sync,
+    Trigger: PartialEq + Copy + Send + Sync,
 {
-    fn evaluate(&self, ctx: &AchievementContext<Player, Metadata, Trigger>) -> bool {
+    fn evaluate(
+        &self,
+        ctx: &AchievementContext<Player, Metadata, Trigger>,
+    ) -> impl Into<EvalResult> {
         ctx.has_trigger(self.trigger)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::bloop::Bloop;
-    use crate::evaluator::SingleEvaluator;
-    use crate::evaluator::test_utils::{MockPlayer, TestCtxBuilder};
-    use crate::evaluator::trigger::TriggerEvaluator;
+    use crate::evaluator::{EvalResult, Evaluator};
     use crate::nfc_uid::NfcUid;
+    use crate::test_utils::{MockPlayer, TestCtxBuilder};
     use crate::trigger::{TriggerOccurrence, TriggerRegistry, TriggerSpec};
     use chrono::Utc;
     use std::collections::HashMap;
@@ -84,7 +80,10 @@ mod tests {
         let mut builder = TestCtxBuilder::new(bloop).trigger_registry(trigger_registry);
 
         let evaluator = TriggerEvaluator::new(Trigger::Foo);
-        assert!(evaluator.evaluate(&builder.build()));
+        assert_eq!(
+            evaluator.evaluate(&builder.build()).into(),
+            EvalResult::AwardSelf
+        );
     }
 
     #[test]
@@ -96,6 +95,9 @@ mod tests {
             TestCtxBuilder::new(bloop).trigger_registry(TriggerRegistry::new(HashMap::new()));
 
         let evaluator = TriggerEvaluator::new(Trigger::Bar);
-        assert!(!evaluator.evaluate(&builder.build()));
+        assert_eq!(
+            evaluator.evaluate(&builder.build()).into(),
+            EvalResult::NoAward
+        );
     }
 }

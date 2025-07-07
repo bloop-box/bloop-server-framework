@@ -1,5 +1,5 @@
 use crate::achievement::AchievementContext;
-use crate::evaluator::SingleEvaluator;
+use crate::evaluator::{EvalResult, Evaluator};
 use crate::player::PlayerInfo;
 use std::fmt::Debug;
 
@@ -28,23 +28,23 @@ impl MinBloopsEvaluator {
     }
 }
 
-impl<Player: PlayerInfo, Metadata, Trigger> SingleEvaluator<Player, Metadata, Trigger>
+impl<Player: PlayerInfo, Metadata, Trigger> Evaluator<Player, Metadata, Trigger>
     for MinBloopsEvaluator
-where
-    Trigger: Copy + PartialEq + Eq + Debug,
 {
-    fn evaluate(&self, ctx: &AchievementContext<Player, Metadata, Trigger>) -> bool {
+    fn evaluate(
+        &self,
+        ctx: &AchievementContext<Player, Metadata, Trigger>,
+    ) -> impl Into<EvalResult> {
         ctx.current_bloop.player().total_bloops() >= self.min_count
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::bloop::Bloop;
-    use crate::evaluator::SingleEvaluator;
-    use crate::evaluator::min_bloops::MinBloopsEvaluator;
-    use crate::evaluator::test_utils::{MockPlayer, TestCtxBuilder};
-    use crate::test_utils::Utc;
+    use crate::evaluator::{EvalResult, Evaluator};
+    use crate::test_utils::{MockPlayer, TestCtxBuilder, Utc};
 
     #[test]
     fn returns_true_when_enough_bloops() {
@@ -54,7 +54,7 @@ mod tests {
         let ctx = builder.build();
 
         let evaluator = MinBloopsEvaluator::new(3);
-        assert!(evaluator.evaluate(&ctx));
+        assert_eq!(evaluator.evaluate(&ctx).into(), EvalResult::AwardSelf);
     }
 
     #[test]
@@ -65,6 +65,6 @@ mod tests {
         let ctx = builder.build();
 
         let evaluator = MinBloopsEvaluator::new(3);
-        assert!(!evaluator.evaluate(&ctx));
+        assert_eq!(evaluator.evaluate(&ctx).into(), EvalResult::NoAward);
     }
 }
