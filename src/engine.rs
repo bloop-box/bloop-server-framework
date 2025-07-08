@@ -131,15 +131,19 @@ where
         if let Some(throttle) = self.throttle.as_ref() {
             let player_id = player.read().unwrap().id();
 
-            let throttled = self
+            let recent_bloops = self
                 .bloop_provider
                 .for_client(&client_id)
                 .iter()
                 .filter(bloops_since(Utc::now() - throttle.threshold))
                 .take(throttle.max_bloops)
-                .all(|bloop| bloop.player_id == player_id);
+                .collect::<Vec<_>>();
 
-            if throttled {
+            if recent_bloops
+                .iter()
+                .all(|bloop| bloop.player_id == player_id)
+                && recent_bloops.len() == throttle.max_bloops
+            {
                 let _ = response.send(ServerMessage::Error(ErrorResponse::NfcUidThrottled));
                 return;
             }
