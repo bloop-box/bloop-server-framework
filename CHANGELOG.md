@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/bloop-box/bloop-server-framework/compare/v1.0.0...v1.0.1) (2025-07-08)
+
+
+### Bug Fixes
+
+* **engine:** fix throttle logic ([9d93ce6](https://github.com/bloop-box/bloop-server-framework/commit/9d93ce6cb543ae94725847cdad940e5747fa8a67))
+
 # 1.0.0 (2025-07-07)
 
 
