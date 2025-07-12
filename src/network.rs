@@ -5,8 +5,9 @@
 
 use crate::engine::EngineRequest;
 use crate::event::Event;
-use crate::message::{ClientMessage, ErrorResponse, Message, ServerFeatures, ServerMessage};
+use crate::message::{Capabilities, ClientMessage, ErrorResponse, Message, ServerMessage};
 use argon2::{Argon2, PasswordVerifier, password_hash::PasswordHashString};
+#[cfg(feature = "tokio-graceful-shutdown")]
 use async_trait::async_trait;
 use rustls::ServerConfig;
 use rustls::pki_types::{
@@ -590,7 +591,7 @@ where
         writer,
         ServerMessage::ServerHandshake {
             accepted_version: 3,
-            features: ServerFeatures::PreloadCheck,
+            capabilities: Capabilities::PreloadCheck,
         },
     )
     .await?;
@@ -701,7 +702,7 @@ mod tests {
 
         let server_handshake: Message = ServerMessage::ServerHandshake {
             accepted_version: 3,
-            features: ServerFeatures::PreloadCheck,
+            capabilities: Capabilities::PreloadCheck,
         }
         .into();
 
@@ -734,7 +735,7 @@ mod tests {
 
         let server_handshake: Message = ServerMessage::ServerHandshake {
             accepted_version: 3,
-            features: ServerFeatures::PreloadCheck,
+            capabilities: Capabilities::PreloadCheck,
         }
         .into();
 
@@ -771,7 +772,7 @@ mod tests {
 
         let server_handshake: Message = ServerMessage::ServerHandshake {
             accepted_version: 3,
-            features: ServerFeatures::PreloadCheck,
+            capabilities: Capabilities::PreloadCheck,
         }
         .into();
 

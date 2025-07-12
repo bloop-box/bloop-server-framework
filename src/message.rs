@@ -96,10 +96,10 @@ impl DataHash {
     }
 }
 
-/// Bitmask enum representing features supported by the server.
+/// Bitmask enum representing capabilities supported by the server.
 #[bitmask(u64)]
 #[bitmask_config(vec_debug)]
-pub enum ServerFeatures {
+pub enum Capabilities {
     /// Indicates support for preload checks.
     PreloadCheck = 0x1,
 }
@@ -107,7 +107,7 @@ pub enum ServerFeatures {
 /// Enum of messages sent from the client to the server.
 #[derive(Debug)]
 pub enum ClientMessage {
-    /// Handshake message specifying supported protocol version range.
+    /// Handshake message specifying the supported protocol version range.
     ClientHandshake { min_version: u8, max_version: u8 },
 
     /// Authentication message including client ID, secret, and IP address.
@@ -308,10 +308,11 @@ pub enum ServerMessage {
     /// Error response message.
     Error(ErrorResponse),
 
-    /// Server handshake response with accepted protocol version and features.
+    /// Server handshake response with the accepted protocol version and
+    /// capabilities.
     ServerHandshake {
         accepted_version: u8,
-        features: ServerFeatures,
+        capabilities: Capabilities,
     },
 
     /// Authentication was accepted.
@@ -349,11 +350,11 @@ impl From<ServerMessage> for Message {
             ServerMessage::Error(error) => Message::new(0x00, vec![error.into_error_code()]),
             ServerMessage::ServerHandshake {
                 accepted_version,
-                features,
+                capabilities,
             } => {
                 let mut payload = Vec::with_capacity(9);
                 payload.push(accepted_version);
-                payload.extend_from_slice(&features.bits().to_le_bytes());
+                payload.extend_from_slice(&capabilities.bits().to_le_bytes());
                 Message::new(0x02, payload)
             }
             ServerMessage::AuthenticationAccepted => Message::new(0x04, vec![]),
@@ -620,10 +621,10 @@ mod tests {
 
     #[test]
     fn server_handshake_serializes_correctly() {
-        let features = ServerFeatures::none();
+        let features = Capabilities::none();
         let server_msg = ServerMessage::ServerHandshake {
             accepted_version: 7,
-            features,
+            capabilities: features,
         };
         let message: Message = server_msg.into();
         assert_eq!(message.message_type, 0x02);
