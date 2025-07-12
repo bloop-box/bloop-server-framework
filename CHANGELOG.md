@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/bloop-box/bloop-server-framework/compare/v1.0.1...v1.0.2) (2025-07-12)
+
+
+### Bug Fixes
+
+* rename features to capabilities ([56b987e](https://github.com/bloop-box/bloop-server-framework/commit/56b987e2df3345981c25ebdcb1f73cf0b258956b))
+
 ## [1.0.1](https://github.com/bloop-box/bloop-server-framework/compare/v1.0.0...v1.0.1) (2025-07-08)
 
 
