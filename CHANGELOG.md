@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/bloop-box/bloop-server-framework/compare/v1.0.2...v1.1.0) (2025-12-05)
+
+
+### Features
+
+* make audio hash available through achievements ([41d3b4e](https://github.com/bloop-box/bloop-server-framework/commit/41d3b4eeb2b5c9313613f050f744c3af21c44016))
+
 ## [1.0.2](https://github.com/bloop-box/bloop-server-framework/compare/v1.0.1...v1.0.2) (2025-07-12)
 
 
