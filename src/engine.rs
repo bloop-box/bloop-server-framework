@@ -517,14 +517,14 @@ fn collect_audio_hashes<Metadata, Player, State, Trigger>(
     }
 
     // Collect hashes to compute manifest hash
-    let mut entries: Vec<_> = achievements
+    let mut hash_entries: Vec<_> = achievements
         .iter()
         .filter_map(|a| a.audio_file_hash.map(|hash| (a.id, hash)))
         .collect();
-    entries.sort_by_key(|(id, _)| *id);
-    
-    let mut hash_input = Vec::with_capacity(entries.len() * 32);
-    for (id, hash) in entries {
+    hash_entries.sort_by_key(|(id, _)| *id);
+
+    let mut hash_input = Vec::with_capacity(hash_entries.len() * 32);
+    for (id, hash) in hash_entries {
         hash_input.extend(id.as_bytes());
         hash_input.extend_from_slice(hash.as_bytes());
     }

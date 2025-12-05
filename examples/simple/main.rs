@@ -30,6 +30,10 @@ async fn main() -> anyhow::Result<()> {
         .build()?;
     let achievements: Vec<Achievement> = vec![achievement];
 
+    // Note: After building the engine, achievements will have their audio_file_hash field populated.
+    // This allows you to access the hash directly from the achievement for syncing to external servers.
+    // Example: achievement.audio_file_hash will contain the MD5 hash of the audio file.
+
     let player_repository = DummyPlayerRepository;
     let players = player_repository.load_all().await?;
     let player_registry = PlayerRegistry::new(players);
