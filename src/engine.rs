@@ -70,7 +70,6 @@ where
     bloop_provider: BloopProvider<Player>,
     achievements: HashMap<Uuid, Achievement<Metadata, Player, State, Trigger>>,
     audio_base_path: PathBuf,
-    audio_file_hashes: HashMap<Uuid, DataHash>,
     audio_manifest_hash: DataHash,
     player_registry: Arc<Mutex<PlayerRegistry<Player>>>,
     state: Arc<Mutex<State>>,
@@ -174,7 +173,7 @@ where
                 .into_iter()
                 .map(|id| AchievementRecord {
                     id,
-                    audio_file_hash: self.audio_file_hashes.get(&id).cloned(),
+                    audio_file_hash: self.achievements.get(&id).and_then(|a| a.audio_file_hash),
                 })
                 .collect(),
         });
@@ -318,7 +317,7 @@ where
                 .values()
                 .map(|achievement| AchievementRecord {
                     id: achievement.id,
-                    audio_file_hash: self.audio_file_hashes.get(&achievement.id).cloned(),
+                    audio_file_hash: achievement.audio_file_hash,
                 })
                 .collect(),
         });
@@ -466,11 +465,11 @@ where
             .event_tx
             .ok_or(BuilderError::MissingField("event_tx"))?;
 
-        let (audio_hashes, global_hash) =
-            collect_audio_hashes(&audio_base_path, &self.achievements);
+        let mut achievements_vec = self.achievements;
+        let global_hash = collect_audio_hashes(&audio_base_path, &mut achievements_vec);
         let bloop_provider = BloopProvider::with_bloops(bloop_retention, self.bloops);
         let achievements: HashMap<Uuid, Achievement<Metadata, Player, State, Trigger>> =
-            self.achievements.into_iter().map(|a| (a.id, a)).collect();
+            achievements_vec.into_iter().map(|a| (a.id, a)).collect();
         let state = self
             .state
             .unwrap_or_else(|| Arc::new(Mutex::new(Default::default())));
@@ -483,7 +482,6 @@ where
             bloop_provider,
             achievements,
             audio_base_path,
-            audio_file_hashes: audio_hashes,
             audio_manifest_hash: global_hash,
             player_registry,
             state,
@@ -498,37 +496,41 @@ where
 
 fn collect_audio_hashes<Metadata, Player, State, Trigger>(
     audio_base_path: &Path,
-    achievements: &[Achievement<Metadata, Player, State, Trigger>],
-) -> (HashMap<Uuid, DataHash>, DataHash) {
-    let audio_file_hashes: HashMap<Uuid, DataHash> = achievements
+    achievements: &mut [Achievement<Metadata, Player, State, Trigger>],
+) -> DataHash {
+    // Compute and store hash on each achievement
+    for achievement in achievements.iter_mut() {
+        if let Some(path) = achievement.audio_path.as_ref() {
+            let full_path = audio_base_path.join(path);
+
+            match fs::read(&full_path) {
+                Ok(file_content) => {
+                    let digest = md5::compute(file_content);
+                    achievement.audio_file_hash = Some(digest.into());
+                }
+                Err(_) => {
+                    warn!("Audio file missing: {:?}", full_path);
+                    achievement.audio_file_hash = None;
+                }
+            }
+        }
+    }
+
+    // Collect hashes to compute manifest hash
+    let mut entries: Vec<_> = achievements
         .iter()
-        .filter_map(|achievement| {
-            let path = achievement.audio_path.as_ref()?;
-            let path = audio_base_path.join(path);
-
-            let Ok(file_content) = fs::read(path.clone()) else {
-                warn!("Audio file missing: {:?}", path);
-                return None;
-            };
-
-            let digest = md5::compute(file_content);
-
-            Some((achievement.id, digest.into()))
-        })
+        .filter_map(|a| a.audio_file_hash.map(|hash| (a.id, hash)))
         .collect();
-
-    let mut entries: Vec<_> = audio_file_hashes.iter().collect();
     entries.sort_by_key(|(id, _)| *id);
+    
     let mut hash_input = Vec::with_capacity(entries.len() * 32);
-
     for (id, hash) in entries {
         hash_input.extend(id.as_bytes());
         hash_input.extend_from_slice(hash.as_bytes());
     }
 
     let manifest_hash = md5::compute(hash_input);
-
-    (audio_file_hashes, manifest_hash.into())
+    manifest_hash.into()
 }
 
 #[cfg(test)]
@@ -687,5 +689,142 @@ mod tests {
             }
             _ => panic!("Expected throttling error"),
         }
+    }
+
+    #[test]
+    fn audio_file_hash_is_computed_and_stored_on_achievement() {
+        use crate::achievement::AchievementBuilder;
+        use crate::evaluator::min_bloops::MinBloopsEvaluator;
+        use tempfile::TempDir;
+        use std::fs;
+        use uuid::Uuid;
+
+        // Create a temporary directory with a test audio file
+        let temp_dir = TempDir::new().unwrap();
+        let audio_path = temp_dir.path().join("test.wav");
+        let test_content = b"test audio content";
+        fs::write(&audio_path, test_content).unwrap();
+
+        // Create an achievement with an audio path
+        let achievement_id = Uuid::new_v4();
+        let achievement = AchievementBuilder::new()
+            .id(achievement_id)
+            .evaluator(MinBloopsEvaluator::new(1))
+            .audio_path("test.wav")
+            .build()
+            .unwrap();
+
+        // Build engine with this achievement
+        let player_registry = Arc::new(Mutex::new(PlayerRegistry::new(vec![])));
+        let (_tx, rx) = mpsc::channel(1);
+        let (evt_tx, _) = broadcast::channel(16);
+
+        let engine = EngineBuilder::<MockPlayer, (), (), ()>::new()
+            .bloop_retention(Duration::from_secs(3600))
+            .audio_base_path(temp_dir.path())
+            .player_registry(player_registry)
+            .achievements(vec![achievement])
+            .network_rx(rx)
+            .event_tx(evt_tx)
+            .build()
+            .unwrap();
+
+        // Verify the achievement has the audio file hash set
+        let stored_achievement = engine.achievements.get(&achievement_id).unwrap();
+        assert!(
+            stored_achievement.audio_file_hash.is_some(),
+            "Audio file hash should be set on achievement"
+        );
+
+        // Verify the hash matches the expected MD5 hash
+        let expected_hash = md5::compute(test_content);
+        let stored_hash = stored_achievement.audio_file_hash.unwrap();
+        assert_eq!(
+            stored_hash.as_bytes(),
+            expected_hash.as_ref(),
+            "Audio file hash should match expected MD5 hash"
+        );
+    }
+
+    #[test]
+    fn audio_file_hash_is_none_when_file_missing() {
+        use crate::achievement::AchievementBuilder;
+        use crate::evaluator::min_bloops::MinBloopsEvaluator;
+        use tempfile::TempDir;
+        use uuid::Uuid;
+
+        // Create a temporary directory without the audio file
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create an achievement with an audio path that doesn't exist
+        let achievement_id = Uuid::new_v4();
+        let achievement = AchievementBuilder::new()
+            .id(achievement_id)
+            .evaluator(MinBloopsEvaluator::new(1))
+            .audio_path("missing.wav")
+            .build()
+            .unwrap();
+
+        // Build engine with this achievement
+        let player_registry = Arc::new(Mutex::new(PlayerRegistry::new(vec![])));
+        let (_tx, rx) = mpsc::channel(1);
+        let (evt_tx, _) = broadcast::channel(16);
+
+        let engine = EngineBuilder::<MockPlayer, (), (), ()>::new()
+            .bloop_retention(Duration::from_secs(3600))
+            .audio_base_path(temp_dir.path())
+            .player_registry(player_registry)
+            .achievements(vec![achievement])
+            .network_rx(rx)
+            .event_tx(evt_tx)
+            .build()
+            .unwrap();
+
+        // Verify the achievement has no audio file hash
+        let stored_achievement = engine.achievements.get(&achievement_id).unwrap();
+        assert!(
+            stored_achievement.audio_file_hash.is_none(),
+            "Audio file hash should be None when file is missing"
+        );
+    }
+
+    #[test]
+    fn audio_file_hash_is_none_when_no_audio_path() {
+        use crate::achievement::AchievementBuilder;
+        use crate::evaluator::min_bloops::MinBloopsEvaluator;
+        use tempfile::TempDir;
+        use uuid::Uuid;
+
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create an achievement without an audio path
+        let achievement_id = Uuid::new_v4();
+        let achievement = AchievementBuilder::new()
+            .id(achievement_id)
+            .evaluator(MinBloopsEvaluator::new(1))
+            .build()
+            .unwrap();
+
+        // Build engine with this achievement
+        let player_registry = Arc::new(Mutex::new(PlayerRegistry::new(vec![])));
+        let (_tx, rx) = mpsc::channel(1);
+        let (evt_tx, _) = broadcast::channel(16);
+
+        let engine = EngineBuilder::<MockPlayer, (), (), ()>::new()
+            .bloop_retention(Duration::from_secs(3600))
+            .audio_base_path(temp_dir.path())
+            .player_registry(player_registry)
+            .achievements(vec![achievement])
+            .network_rx(rx)
+            .event_tx(evt_tx)
+            .build()
+            .unwrap();
+
+        // Verify the achievement has no audio file hash
+        let stored_achievement = engine.achievements.get(&achievement_id).unwrap();
+        assert!(
+            stored_achievement.audio_file_hash.is_none(),
+            "Audio file hash should be None when no audio path is specified"
+        );
     }
 }

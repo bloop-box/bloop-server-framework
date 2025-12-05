@@ -36,6 +36,7 @@ pub struct AchievementBuilder<Player, State, Trigger, Metadata> {
     metadata: Metadata,
     audio_path: Option<PathBuf>,
     hot_duration: Option<Duration>,
+    audio_file_hash: Option<crate::message::DataHash>,
 }
 
 impl AchievementBuilder<(), (), (), ()> {
@@ -46,6 +47,7 @@ impl AchievementBuilder<(), (), (), ()> {
             metadata: (),
             audio_path: None,
             hot_duration: None,
+            audio_file_hash: None,
         }
     }
 }
@@ -68,6 +70,7 @@ impl<Player, State, Trigger, Metadata> AchievementBuilder<Player, State, Trigger
             metadata: self.metadata,
             audio_path: self.audio_path,
             hot_duration: self.hot_duration,
+            audio_file_hash: self.audio_file_hash,
         }
     }
 
@@ -79,6 +82,7 @@ impl<Player, State, Trigger, Metadata> AchievementBuilder<Player, State, Trigger
             metadata,
             audio_path: self.audio_path,
             hot_duration: self.hot_duration,
+            audio_file_hash: self.audio_file_hash,
         }
     }
 
@@ -92,6 +96,12 @@ impl<Player, State, Trigger, Metadata> AchievementBuilder<Player, State, Trigger
     /// being awarded.
     pub fn hot_duration(mut self, hot_duration: Duration) -> Self {
         self.hot_duration = Some(hot_duration);
+        self
+    }
+
+    /// Optionally sets the audio file hash for this achievement.
+    pub fn audio_file_hash(mut self, hash: crate::message::DataHash) -> Self {
+        self.audio_file_hash = Some(hash);
         self
     }
 
@@ -113,6 +123,7 @@ impl<Player, State, Trigger, Metadata> AchievementBuilder<Player, State, Trigger
             metadata: self.metadata,
             audio_path: self.audio_path,
             hot_duration: self.hot_duration,
+            audio_file_hash: self.audio_file_hash,
         })
     }
 }
@@ -130,6 +141,8 @@ pub struct Achievement<Metadata, Player, State, Trigger> {
     pub evaluator: Box<dyn DynEvaluator<Player, State, Trigger>>,
     /// Optional duration for which the achievement remains "hot".
     pub hot_duration: Option<Duration>,
+    /// Optional hash of the audio file.
+    pub audio_file_hash: Option<crate::message::DataHash>,
 }
 
 impl<Metadata, Player, State, Trigger> Achievement<Metadata, Player, State, Trigger> {
