@@ -197,7 +197,7 @@ impl<Player, State, Trigger> TestCtxBuilder<Player, State, Trigger> {
     }
 
     /// Builds the achievement context from the configured components.
-    pub fn build(&mut self) -> AchievementContext<Player, State, Trigger> {
+    pub fn build(&mut self) -> AchievementContext<'_, Player, State, Trigger> {
         AchievementContext::new(
             &self.current_bloop,
             &self.bloop_provider,

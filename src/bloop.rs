@@ -79,7 +79,7 @@ impl<Player> Bloop<Player> {
     ///
     /// If only the player ID is needed, use the `player_id` field directly.
     /// For multiple accesses, cache the guard to minimize locking overhead.
-    pub fn player(&self) -> RwLockReadGuard<Player> {
+    pub fn player(&self) -> RwLockReadGuard<'_, Player> {
         self.player.read().unwrap()
     }
 }
@@ -258,13 +258,7 @@ pub trait BloopRepository {
     async fn persist_batch(&self, bloops: &[ProcessedBloop]) -> Result<(), Self::Error>;
 }
 
-#[derive(Debug, Error)]
-enum SinkError {
-    #[error("Repository error: {0}")]
-    Repository(#[from] Box<dyn std::error::Error + Send + Sync + 'static>),
-}
-
-/// Sink that buffers processed bloops and persists them in batches.
+/// A sink that buffers processed bloops and persists them in batches.
 #[derive(Debug)]
 pub struct ProcessedBloopSink<R: BloopRepository> {
     repository: R,

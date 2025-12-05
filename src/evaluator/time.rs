@@ -65,17 +65,15 @@ impl TimeEvaluator {
         timezone: chrono_tz::Tz,
         leeway: Option<Duration>,
     ) -> Result<Self> {
-        if let Some(hour) = hour {
-            if hour > 23 {
+        if let Some(hour) = hour
+            && hour > 23 {
                 return Err(Error::InvalidHour(hour));
             }
-        }
 
-        if let Some(minute) = minute {
-            if minute > 59 {
+        if let Some(minute) = minute
+            && minute > 59 {
                 return Err(Error::InvalidMinute(minute));
             }
-        }
 
         Ok(Self {
             hour,

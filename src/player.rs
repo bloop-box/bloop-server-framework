@@ -83,14 +83,14 @@ impl<Player: PlayerInfo> PlayerRegistry<Player> {
     /// Returns a read-only lock on a player by their UUID.
     ///
     /// Returns `None` if no player with the given ID exists.
-    pub fn read_by_id(&self, id: Uuid) -> Option<RwLockReadGuard<Player>> {
+    pub fn read_by_id(&self, id: Uuid) -> Option<RwLockReadGuard<'_, Player>> {
         self.by_id.get(&id).map(|player| player.read().unwrap())
     }
 
     /// Returns a read-only lock on a player by their NFC UID.
     ///
     /// Returns `None` if no player with the given NFC UID exists.
-    pub fn read_by_nfc_uid(&self, nfc_uid: NfcUid) -> Option<RwLockReadGuard<Player>> {
+    pub fn read_by_nfc_uid(&self, nfc_uid: NfcUid) -> Option<RwLockReadGuard<'_, Player>> {
         self.by_nfc_uid
             .get(&nfc_uid)
             .map(|player| player.read().unwrap())

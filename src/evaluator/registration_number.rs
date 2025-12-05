@@ -23,14 +23,14 @@ fn internal_is_prime(number: usize) -> bool {
         return true;
     }
 
-    if number <= 1 || number % 2 == 0 || number % 3 == 0 {
+    if number <= 1 || number.is_multiple_of(2) || number.is_multiple_of(3) {
         return false;
     }
 
     let mut i = 5;
 
     while i * i <= number {
-        if number % i == 0 || number % (i + 2) == 0 {
+        if number.is_multiple_of(i) || number.is_multiple_of(i + 2) {
             return false;
         }
 

@@ -4,20 +4,23 @@
 //! This module includes builder types, achievement evaluation contexts,
 //! award tracking, and associated errors.
 
-use crate::bloop::{Bloop, BloopProvider, bloops_for_player, bloops_since};
-use crate::evaluator::EvalResult;
+use crate::bloop::{bloops_for_player, bloops_since, Bloop, BloopProvider};
 use crate::evaluator::boxed::{DynEvaluator, IntoDynEvaluator};
+use crate::evaluator::EvalResult;
+use crate::message::DataHash;
 use crate::player::{PlayerInfo, PlayerMutator, PlayerRegistry};
 use crate::trigger::TriggerRegistry;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::MutexGuard;
+use tracing::warn;
 use uuid::Uuid;
 
 /// Error type for errors encountered when building an achievement.
@@ -111,8 +114,50 @@ impl<Player, State, Trigger, Metadata> AchievementBuilder<Player, State, Trigger
             id,
             evaluator,
             metadata: self.metadata,
-            audio_path: self.audio_path,
+            audio_file: self.audio_path.into(),
             hot_duration: self.hot_duration,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct AudioFile {
+    pub path: PathBuf,
+    pub hash: DataHash,
+}
+
+#[derive(Debug)]
+pub struct AudioSource {
+    relative: Option<PathBuf>,
+    resolved: OnceLock<Option<AudioFile>>,
+}
+
+impl From<Option<PathBuf>> for AudioSource {
+    fn from(path: Option<PathBuf>) -> Self {
+        AudioSource {
+            relative: path,
+            resolved: OnceLock::new(),
+        }
+    }
+}
+
+impl AudioSource {
+    pub fn resolve(&self, base_path: &Path) -> &Option<AudioFile> {
+        self.resolved.get_or_init(|| {
+            let relative = self.relative.as_ref()?;
+
+            let path = base_path.join(relative);
+            let Ok(file_content) = fs::read(path.clone()) else {
+                warn!("Audio file missing: {:?}", path);
+                return None;
+            };
+
+            let digest = md5::compute(file_content);
+
+            Some(AudioFile {
+                path,
+                hash: digest.into(),
+            })
         })
     }
 }
@@ -124,8 +169,8 @@ pub struct Achievement<Metadata, Player, State, Trigger> {
     pub id: Uuid,
     /// Metadata definition of the achievement.
     pub metadata: Metadata,
-    /// Path to audio played when achievement is awarded.
-    pub audio_path: Option<PathBuf>,
+    /// Audio file to play when achievement is awarded.
+    pub audio_file: AudioSource,
     /// Evaluation logic for determining if the achievement should be awarded.
     pub evaluator: Box<dyn DynEvaluator<Player, State, Trigger>>,
     /// Optional duration for which the achievement remains "hot".

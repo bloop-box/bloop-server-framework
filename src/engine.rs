@@ -11,7 +11,6 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -70,7 +69,6 @@ where
     bloop_provider: BloopProvider<Player>,
     achievements: HashMap<Uuid, Achievement<Metadata, Player, State, Trigger>>,
     audio_base_path: PathBuf,
-    audio_file_hashes: HashMap<Uuid, DataHash>,
     audio_manifest_hash: DataHash,
     player_registry: Arc<Mutex<PlayerRegistry<Player>>>,
     state: Arc<Mutex<State>>,
@@ -174,7 +172,7 @@ where
                 .into_iter()
                 .map(|id| AchievementRecord {
                     id,
-                    audio_file_hash: self.audio_file_hashes.get(&id).cloned(),
+                    audio_file_hash: self.achievements.get(&id).unwrap().audio_file.resolve(&self.audio_base_path).as_ref().map(|file| file.hash),
                 })
                 .collect(),
         });
@@ -269,12 +267,13 @@ where
             return;
         };
 
-        let Some(path) = achievement.audio_path.as_ref() else {
+        let Some(audio_file) = achievement.audio_file.resolve(&self.audio_base_path) else {
             info!("Client requested audio for audio-less achievement: {}", id);
             let _ = response.send(ServerMessage::Error(ErrorResponse::AudioUnavailable));
             return;
         };
-        let path = self.audio_base_path.join(path);
+
+        let path = audio_file.path.clone();
 
         tokio::spawn(async move {
             let mut file = match File::open(&path).await {
@@ -304,12 +303,11 @@ where
         manifest_hash: Option<DataHash>,
         response: oneshot::Sender<ServerMessage>,
     ) {
-        if let Some(manifest_hash) = manifest_hash {
-            if manifest_hash == self.audio_manifest_hash {
+        if let Some(manifest_hash) = manifest_hash
+            && manifest_hash == self.audio_manifest_hash {
                 let _ = response.send(ServerMessage::PreloadMatch);
                 return;
             }
-        }
 
         let _ = response.send(ServerMessage::PreloadMismatch {
             audio_manifest_hash: self.audio_manifest_hash,
@@ -318,7 +316,7 @@ where
                 .values()
                 .map(|achievement| AchievementRecord {
                     id: achievement.id,
-                    audio_file_hash: self.audio_file_hashes.get(&achievement.id).cloned(),
+                    audio_file_hash: achievement.audio_file.resolve(&self.audio_base_path).as_ref().map(|file| file.hash),
                 })
                 .collect(),
         });
@@ -466,8 +464,7 @@ where
             .event_tx
             .ok_or(BuilderError::MissingField("event_tx"))?;
 
-        let (audio_hashes, global_hash) =
-            collect_audio_hashes(&audio_base_path, &self.achievements);
+        let audio_manifest_hash = calculate_manifest_hash(&audio_base_path, &self.achievements);
         let bloop_provider = BloopProvider::with_bloops(bloop_retention, self.bloops);
         let achievements: HashMap<Uuid, Achievement<Metadata, Player, State, Trigger>> =
             self.achievements.into_iter().map(|a| (a.id, a)).collect();
@@ -483,8 +480,7 @@ where
             bloop_provider,
             achievements,
             audio_base_path,
-            audio_file_hashes: audio_hashes,
-            audio_manifest_hash: global_hash,
+            audio_manifest_hash,
             player_registry,
             state,
             trigger_registry,
@@ -496,24 +492,14 @@ where
     }
 }
 
-fn collect_audio_hashes<Metadata, Player, State, Trigger>(
+fn calculate_manifest_hash<Metadata, Player, State, Trigger>(
     audio_base_path: &Path,
     achievements: &[Achievement<Metadata, Player, State, Trigger>],
-) -> (HashMap<Uuid, DataHash>, DataHash) {
+) -> DataHash {
     let audio_file_hashes: HashMap<Uuid, DataHash> = achievements
         .iter()
         .filter_map(|achievement| {
-            let path = achievement.audio_path.as_ref()?;
-            let path = audio_base_path.join(path);
-
-            let Ok(file_content) = fs::read(path.clone()) else {
-                warn!("Audio file missing: {:?}", path);
-                return None;
-            };
-
-            let digest = md5::compute(file_content);
-
-            Some((achievement.id, digest.into()))
+            achievement.audio_file.resolve(audio_base_path).as_ref().map(|file| (achievement.id, file.hash))
         })
         .collect();
 
@@ -527,8 +513,7 @@ fn collect_audio_hashes<Metadata, Player, State, Trigger>(
     }
 
     let manifest_hash = md5::compute(hash_input);
-
-    (audio_file_hashes, manifest_hash.into())
+    manifest_hash.into()
 }
 
 #[cfg(test)]
