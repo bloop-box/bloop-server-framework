@@ -4,9 +4,9 @@
 //! This module includes builder types, achievement evaluation contexts,
 //! award tracking, and associated errors.
 
-use crate::bloop::{bloops_for_player, bloops_since, Bloop, BloopProvider};
-use crate::evaluator::boxed::{DynEvaluator, IntoDynEvaluator};
+use crate::bloop::{Bloop, BloopProvider, bloops_for_player, bloops_since};
 use crate::evaluator::EvalResult;
+use crate::evaluator::boxed::{DynEvaluator, IntoDynEvaluator};
 use crate::message::DataHash;
 use crate::player::{PlayerInfo, PlayerMutator, PlayerRegistry};
 use crate::trigger::TriggerRegistry;

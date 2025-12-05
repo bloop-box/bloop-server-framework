@@ -172,7 +172,14 @@ where
                 .into_iter()
                 .map(|id| AchievementRecord {
                     id,
-                    audio_file_hash: self.achievements.get(&id).unwrap().audio_file.resolve(&self.audio_base_path).as_ref().map(|file| file.hash),
+                    audio_file_hash: self
+                        .achievements
+                        .get(&id)
+                        .unwrap()
+                        .audio_file
+                        .resolve(&self.audio_base_path)
+                        .as_ref()
+                        .map(|file| file.hash),
                 })
                 .collect(),
         });
@@ -304,10 +311,11 @@ where
         response: oneshot::Sender<ServerMessage>,
     ) {
         if let Some(manifest_hash) = manifest_hash
-            && manifest_hash == self.audio_manifest_hash {
-                let _ = response.send(ServerMessage::PreloadMatch);
-                return;
-            }
+            && manifest_hash == self.audio_manifest_hash
+        {
+            let _ = response.send(ServerMessage::PreloadMatch);
+            return;
+        }
 
         let _ = response.send(ServerMessage::PreloadMismatch {
             audio_manifest_hash: self.audio_manifest_hash,
@@ -316,7 +324,11 @@ where
                 .values()
                 .map(|achievement| AchievementRecord {
                     id: achievement.id,
-                    audio_file_hash: achievement.audio_file.resolve(&self.audio_base_path).as_ref().map(|file| file.hash),
+                    audio_file_hash: achievement
+                        .audio_file
+                        .resolve(&self.audio_base_path)
+                        .as_ref()
+                        .map(|file| file.hash),
                 })
                 .collect(),
         });
@@ -499,7 +511,11 @@ fn calculate_manifest_hash<Metadata, Player, State, Trigger>(
     let audio_file_hashes: HashMap<Uuid, DataHash> = achievements
         .iter()
         .filter_map(|achievement| {
-            achievement.audio_file.resolve(audio_base_path).as_ref().map(|file| (achievement.id, file.hash))
+            achievement
+                .audio_file
+                .resolve(audio_base_path)
+                .as_ref()
+                .map(|file| (achievement.id, file.hash))
         })
         .collect();
 
