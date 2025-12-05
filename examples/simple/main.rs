@@ -28,11 +28,22 @@ async fn main() -> anyhow::Result<()> {
         .id(uuid!("565fd1d0-d973-4870-b9db-9574fa6d81d2"))
         .evaluator(MinBloopsEvaluator::new(1))
         .build()?;
-    let achievements: Vec<Achievement> = vec![achievement];
+    let mut achievements: Vec<Achievement> = vec![achievement];
 
-    // Note: After building the engine, achievements will have their audio_file_hash field populated.
-    // This allows you to access the hash directly from the achievement for syncing to external servers.
-    // Example: achievement.audio_file_hash will contain the MD5 hash of the audio file.
+    // Compute audio hashes BEFORE building the engine.
+    // This allows you to access the hash for syncing to external servers before starting the engine.
+    bloop_server_framework::achievement::compute_audio_hashes(
+        std::path::Path::new("./audio"),
+        &mut achievements,
+    );
+
+    // Now achievements have their audio_file_hash field populated and can be synced.
+    // Example: sync to external server before starting the engine
+    // for achievement in &achievements {
+    //     if let Some(hash) = achievement.audio_file_hash {
+    //         sync_to_server(achievement.id, hash).await?;
+    //     }
+    // }
 
     let player_repository = DummyPlayerRepository;
     let players = player_repository.load_all().await?;

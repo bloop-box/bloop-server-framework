@@ -165,6 +165,67 @@ impl<Metadata, Player, State, Trigger> Achievement<Metadata, Player, State, Trig
     }
 }
 
+/// Computes MD5 hashes for audio files and stores them on achievements.
+///
+/// This function reads audio files from the specified base path and computes
+/// MD5 hashes for each achievement that has an `audio_path` set. The computed
+/// hashes are stored in the `audio_file_hash` field of each achievement.
+///
+/// This allows users to access audio file hashes before constructing an Engine,
+/// which is useful for syncing achievement data to external servers.
+///
+/// # Arguments
+///
+/// * `audio_base_path` - Base directory path where audio files are stored
+/// * `achievements` - Mutable slice of achievements to populate with hashes
+///
+/// # Example
+///
+/// ```no_run
+/// use bloop_server_framework::achievement::compute_audio_hashes;
+/// use std::path::Path;
+///
+/// # use bloop_server_framework::achievement::Achievement;
+/// # type MyAchievement = Achievement<(), (), (), ()>;
+/// // Build your achievements (with your own Player, State, Trigger types)
+/// let mut achievements: Vec<MyAchievement> = vec![/* ... */];
+///
+/// // Compute audio hashes before creating the Engine
+/// compute_audio_hashes(Path::new("./audio"), &mut achievements);
+///
+/// // Now achievements have their audio_file_hash populated
+/// // and you can sync them to external servers
+/// for achievement in &achievements {
+///     if let Some(hash) = achievement.audio_file_hash {
+///         // sync to server...
+///     }
+/// }
+/// ```
+pub fn compute_audio_hashes<Metadata, Player, State, Trigger>(
+    audio_base_path: &std::path::Path,
+    achievements: &mut [Achievement<Metadata, Player, State, Trigger>],
+) {
+    use std::fs;
+    use tracing::warn;
+
+    for achievement in achievements.iter_mut() {
+        if let Some(path) = achievement.audio_path.as_ref() {
+            let full_path = audio_base_path.join(path);
+
+            match fs::read(&full_path) {
+                Ok(file_content) => {
+                    let digest = md5::compute(file_content);
+                    achievement.audio_file_hash = Some(digest.into());
+                }
+                Err(_) => {
+                    warn!("Audio file missing: {:?}", full_path);
+                    achievement.audio_file_hash = None;
+                }
+            }
+        }
+    }
+}
+
 /// Represents the achievements awarded to a single player at a specific time.
 #[derive(Debug, Clone, Serialize)]
 pub struct PlayerAchievementAwards {

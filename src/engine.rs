@@ -11,8 +11,7 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
@@ -466,7 +465,8 @@ where
             .ok_or(BuilderError::MissingField("event_tx"))?;
 
         let mut achievements_vec = self.achievements;
-        let global_hash = collect_audio_hashes(&audio_base_path, &mut achievements_vec);
+        crate::achievement::compute_audio_hashes(&audio_base_path, &mut achievements_vec);
+        let global_hash = compute_audio_manifest_hash(&achievements_vec);
         let bloop_provider = BloopProvider::with_bloops(bloop_retention, self.bloops);
         let achievements: HashMap<Uuid, Achievement<Metadata, Player, State, Trigger>> =
             achievements_vec.into_iter().map(|a| (a.id, a)).collect();
@@ -494,28 +494,9 @@ where
     }
 }
 
-fn collect_audio_hashes<Metadata, Player, State, Trigger>(
-    audio_base_path: &Path,
-    achievements: &mut [Achievement<Metadata, Player, State, Trigger>],
+fn compute_audio_manifest_hash<Metadata, Player, State, Trigger>(
+    achievements: &[Achievement<Metadata, Player, State, Trigger>],
 ) -> DataHash {
-    // Compute and store hash on each achievement
-    for achievement in achievements.iter_mut() {
-        if let Some(path) = achievement.audio_path.as_ref() {
-            let full_path = audio_base_path.join(path);
-
-            match fs::read(&full_path) {
-                Ok(file_content) => {
-                    let digest = md5::compute(file_content);
-                    achievement.audio_file_hash = Some(digest.into());
-                }
-                Err(_) => {
-                    warn!("Audio file missing: {:?}", full_path);
-                    achievement.audio_file_hash = None;
-                }
-            }
-        }
-    }
-
     // Collect hashes to compute manifest hash
     let mut hash_entries: Vec<_> = achievements
         .iter()
