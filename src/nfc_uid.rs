@@ -54,6 +54,14 @@ impl TryFrom<&[u8]> for NfcUid {
     }
 }
 
+impl TryFrom<Vec<u8>> for NfcUid {
+    type Error = Error;
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        Self::try_from(&value[..])
+    }
+}
+
 impl FromHex for NfcUid {
     type Error = FromHexError;
 
@@ -73,6 +81,10 @@ impl NfcUid {
             NfcUid::Double(data) => data,
             NfcUid::Triple(data) => data,
         }
+    }
+
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.as_bytes().to_vec()
     }
 }
 
