@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/bloop-box/bloop-server-framework/compare/v1.1.0...v1.2.0) (2025-12-06)
+
+
+### Features
+
+* **nfc_uid:** add additional impls for vec handling ([648d882](https://github.com/bloop-box/bloop-server-framework/commit/648d882e7ebbe4ccad1ca568e9c340f72566944c))
+
 # [1.1.0](https://github.com/bloop-box/bloop-server-framework/compare/v1.0.2...v1.1.0) (2025-12-05)
 
 
