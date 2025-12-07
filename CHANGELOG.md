@@ -1,3 +1,10 @@
+## [1.3.2](https://github.com/bloop-box/bloop-server-framework/compare/v1.3.1...v1.3.2) (2025-12-07)
+
+
+### Bug Fixes
+
+* rename missing Metadata to State ([65f377b](https://github.com/bloop-box/bloop-server-framework/commit/65f377bd8eb922550c31e46030cd54e7cfa6c79e))
+
 ## [1.3.1](https://github.com/bloop-box/bloop-server-framework/compare/v1.3.0...v1.3.1) (2025-12-07)
 
 
