@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/bloop-box/bloop-server-framework/compare/v1.2.0...v1.3.0) (2025-12-07)
+
+
+### Features
+
+* **player:** add fn to PlayerRegistry to get player Arcs ([433ba26](https://github.com/bloop-box/bloop-server-framework/commit/433ba2648fa6f64700e5abb134d06817225e9458))
+
 # [1.2.0](https://github.com/bloop-box/bloop-server-framework/compare/v1.1.0...v1.2.0) (2025-12-06)
 
 
