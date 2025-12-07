@@ -279,30 +279,30 @@ impl AwardedTracker {
 
 /// Context used when evaluating and awarding achievements for a specific bloop.
 #[derive(Debug)]
-pub struct AchievementContext<'a, Player, Metadata, Trigger> {
+pub struct AchievementContext<'a, Player, State, Trigger> {
     /// The bloop currently being evaluated.
     pub current_bloop: &'a Bloop<Player>,
     /// Provides access to bloop data for the clients and players.
     pub bloop_provider: &'a BloopProvider<Player>,
-    /// Additional evaluation-specific metadata.
-    pub metadata: &'a Metadata,
+    /// Additional evaluation-specific state.
+    pub state: &'a State,
     /// Registry of all active triggers.
     trigger_registry: Mutex<&'a mut TriggerRegistry<Trigger>>,
     /// Tracks achievements awarded during this evaluation.
     awarded_tracker: Mutex<AwardedTracker>,
 }
 
-impl<'a, Player, Metadata, Trigger> AchievementContext<'a, Player, Metadata, Trigger> {
+impl<'a, Player, State, Trigger> AchievementContext<'a, Player, State, Trigger> {
     pub fn new(
         current_bloop: &'a Bloop<Player>,
         bloop_provider: &'a BloopProvider<Player>,
-        metadata: &'a Metadata,
+        state: &'a State,
         trigger_registry: &'a mut TriggerRegistry<Trigger>,
     ) -> Self {
         AchievementContext {
             current_bloop,
             bloop_provider,
-            metadata,
+            state,
             trigger_registry: Mutex::new(trigger_registry),
             awarded_tracker: Mutex::new(AwardedTracker::new(current_bloop)),
         }
