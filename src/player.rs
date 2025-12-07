@@ -76,7 +76,16 @@ impl<Player: PlayerInfo> PlayerRegistry<Player> {
     }
 
     /// Returns the shared player reference (Arc) by their UUID.
-    pub(crate) fn get_by_nfc_uid(&self, nfc_uid: NfcUid) -> Option<Arc<RwLock<Player>>> {
+    ///
+    /// Use [`Self::read_by_id()`] if you only need read access.
+    pub fn get_by_id(&self, id: Uuid) -> Option<Arc<RwLock<Player>>> {
+        self.by_id.get(&id).cloned()
+    }
+
+    /// Returns the shared player reference (Arc) by their NFC UID.
+    ///
+    /// /// Use [`Self::read_by_nfc_uid()`] if you only need read access.
+    pub fn get_by_nfc_uid(&self, nfc_uid: NfcUid) -> Option<Arc<RwLock<Player>>> {
         self.by_nfc_uid.get(&nfc_uid).cloned()
     }
 
