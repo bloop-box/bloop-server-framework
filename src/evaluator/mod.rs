@@ -57,10 +57,7 @@ impl From<Option<Vec<Uuid>>> for EvalResult {
 /// an achievement should be awarded.
 pub trait Evaluator<Player, State, Trigger> {
     /// Evaluate the achievement for the given context.
-    fn evaluate(
-        &self,
-        ctx: &AchievementContext<Player, State, Trigger>,
-    ) -> impl Into<EvalResult>;
+    fn evaluate(&self, ctx: &AchievementContext<Player, State, Trigger>) -> impl Into<EvalResult>;
 }
 
 #[cfg(test)]
