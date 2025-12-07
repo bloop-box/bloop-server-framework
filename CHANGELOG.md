@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/bloop-box/bloop-server-framework/compare/v1.3.0...v1.3.1) (2025-12-07)
+
+
+### Bug Fixes
+
+* rename Metadata generic to State ([26f7426](https://github.com/bloop-box/bloop-server-framework/commit/26f742675a053d39d8bf57c15f12019451efd602))
+
 # [1.3.0](https://github.com/bloop-box/bloop-server-framework/compare/v1.2.0...v1.3.0) (2025-12-07)
 
 
