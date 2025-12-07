@@ -55,11 +55,11 @@ impl From<Option<Vec<Uuid>>> for EvalResult {
 ///
 /// This is the primary abstraction for writing custom logic to evaluate whether
 /// an achievement should be awarded.
-pub trait Evaluator<Player, Metadata, Trigger> {
+pub trait Evaluator<Player, State, Trigger> {
     /// Evaluate the achievement for the given context.
     fn evaluate(
         &self,
-        ctx: &AchievementContext<Player, Metadata, Trigger>,
+        ctx: &AchievementContext<Player, State, Trigger>,
     ) -> impl Into<EvalResult>;
 }
 
