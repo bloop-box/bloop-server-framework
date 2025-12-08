@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/bloop-box/bloop-server-framework/compare/v1.3.3...v1.4.0) (2025-12-08)
+
+
+### Features
+
+* **evaluator:** add StreakEvaluator ([19ab2f4](https://github.com/bloop-box/bloop-server-framework/commit/19ab2f4b2b84427a0307e1faac9847934cc77257))
+
 ## [1.3.3](https://github.com/bloop-box/bloop-server-framework/compare/v1.3.2...v1.3.3) (2025-12-08)
 
 
