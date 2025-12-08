@@ -1,3 +1,10 @@
+## [1.4.2](https://github.com/bloop-box/bloop-server-framework/compare/v1.4.1...v1.4.2) (2025-12-08)
+
+
+### Bug Fixes
+
+* **semantic-release:** commit Cargo.lock on release ([cca0b15](https://github.com/bloop-box/bloop-server-framework/commit/cca0b15bef68460493f3d55ebc0fbe17f23298fd))
+
 ## [1.4.1](https://github.com/bloop-box/bloop-server-framework/compare/v1.4.0...v1.4.1) (2025-12-08)
 
 
