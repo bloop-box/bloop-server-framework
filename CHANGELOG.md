@@ -1,3 +1,10 @@
+## [1.4.1](https://github.com/bloop-box/bloop-server-framework/compare/v1.4.0...v1.4.1) (2025-12-08)
+
+
+### Bug Fixes
+
+* **evaluator:** forbid duplicate players and self in streak checks ([fa366da](https://github.com/bloop-box/bloop-server-framework/commit/fa366da8a333701b5989b9532c1b6e148b4c15d7))
+
 # [1.4.0](https://github.com/bloop-box/bloop-server-framework/compare/v1.3.3...v1.4.0) (2025-12-08)
 
 
