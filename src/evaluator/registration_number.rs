@@ -134,7 +134,7 @@ where
     F: Fn(usize) -> bool + Send + Sync + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("NumberPropertyEvaluator")
+        f.debug_struct("NumberPredicateEvaluator")
             .field("predicate", &"<closure>")
             .field("min_required", &self.min_required)
             .field("max_window", &self.max_window)

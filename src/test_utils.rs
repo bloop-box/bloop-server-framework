@@ -40,6 +40,7 @@ pub struct MockPlayerBuilder {
     nfc_uid: NfcUid,
     bloops_count: usize,
     registration_number: usize,
+    name: String,
 }
 
 impl MockPlayerBuilder {
@@ -49,6 +50,7 @@ impl MockPlayerBuilder {
             nfc_uid: NfcUid::default(),
             bloops_count: 0,
             registration_number: 0,
+            name: "test".to_string(),
         }
     }
 
@@ -70,6 +72,12 @@ impl MockPlayerBuilder {
         self
     }
 
+    /// Sets the name of the mock player.
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = name.into();
+        self
+    }
+
     /// Builds the [`MockPlayer`] wrapped in `Arc<RwLock>` along with its UUID.
     pub fn build(self) -> (Arc<RwLock<MockPlayer>>, Uuid) {
         let id = Uuid::new_v4();
@@ -78,7 +86,7 @@ impl MockPlayerBuilder {
             Arc::new(RwLock::new(MockPlayer {
                 id,
                 nfc_uid: self.nfc_uid,
-                name: "test".to_string(),
+                name: self.name,
                 bloops_count: self.bloops_count,
                 awarded: HashMap::new(),
                 registration_number: self.registration_number,

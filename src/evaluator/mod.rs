@@ -5,6 +5,7 @@ pub(crate) mod boxed;
 pub mod min_bloops;
 pub mod registration_number;
 pub mod spelling_bee;
+pub mod streak;
 pub mod time;
 pub mod trigger;
 
