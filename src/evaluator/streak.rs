@@ -1,5 +1,6 @@
 use crate::achievement::AchievementContext;
 use crate::evaluator::{EvalResult, Evaluator};
+use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -62,14 +63,29 @@ where
         &self,
         ctx: &AchievementContext<Player, Metadata, Trigger>,
     ) -> impl Into<EvalResult> {
+        let mut seen_players = HashSet::new();
+        seen_players.insert(ctx.current_bloop.player_id);
+        let mut streak = 0;
+
         let bloops = ctx
             .client_bloops()
             .filter(ctx.filter_within_window(self.max_window))
-            .take(self.min_required)
-            .collect::<Vec<_>>();
+            .take(self.min_required);
 
-        bloops.iter().all(|bloop| (self.predicate)(&bloop.player()))
-            && bloops.len() >= self.min_required
+        for bloop in bloops {
+            if seen_players.contains(&bloop.player_id) || !(self.predicate)(&bloop.player()) {
+                break;
+            }
+
+            seen_players.insert(bloop.player_id);
+            streak += 1;
+
+            if streak >= self.min_required {
+                return true;
+            }
+        }
+
+        false
     }
 }
 

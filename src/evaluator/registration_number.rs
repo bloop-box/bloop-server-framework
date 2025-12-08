@@ -2,6 +2,7 @@ use crate::achievement::AchievementContext;
 use crate::evaluator::{EvalResult, Evaluator};
 use cached::proc_macro::cached;
 use num_integer::Roots;
+use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Debug;
 use std::time::Duration;
@@ -116,16 +117,31 @@ where
         &self,
         ctx: &AchievementContext<Player, Metadata, Trigger>,
     ) -> impl Into<EvalResult> {
+        let mut seen_players = HashSet::new();
+        seen_players.insert(ctx.current_bloop.player_id);
+        let mut streak = 0;
+
         let bloops = ctx
             .client_bloops()
             .filter(ctx.filter_within_window(self.max_window))
-            .take(self.min_required)
-            .collect::<Vec<_>>();
+            .take(self.min_required);
 
-        bloops
-            .iter()
-            .all(|bloop| (self.predicate)(bloop.player().registration_number()))
-            && bloops.len() >= self.min_required
+        for bloop in bloops {
+            if seen_players.contains(&bloop.player_id)
+                || !(self.predicate)(bloop.player().registration_number())
+            {
+                break;
+            }
+
+            seen_players.insert(bloop.player_id);
+            streak += 1;
+
+            if streak >= self.min_required {
+                return true;
+            }
+        }
+
+        false
     }
 }
 
@@ -265,17 +281,31 @@ where
         ctx: &AchievementContext<Player, Metadata, Trigger>,
     ) -> impl Into<EvalResult> {
         let reference = (self.projector)(ctx.current_bloop.player().registration_number());
+        let mut seen_players = HashSet::new();
+        seen_players.insert(ctx.current_bloop.player_id);
+        let mut streak = 0;
 
         let bloops = ctx
             .client_bloops()
             .filter(ctx.filter_within_window(self.max_window))
-            .take(self.min_required)
-            .collect::<Vec<_>>();
+            .take(self.min_required);
 
-        bloops
-            .iter()
-            .all(|bloop| (self.projector)(bloop.player().registration_number()) == reference)
-            && bloops.len() >= self.min_required
+        for bloop in bloops {
+            if seen_players.contains(&bloop.player_id)
+                || (self.projector)(bloop.player().registration_number()) != reference
+            {
+                break;
+            }
+
+            seen_players.insert(bloop.player_id);
+            streak += 1;
+
+            if streak >= self.min_required {
+                return true;
+            }
+        }
+
+        false
     }
 }
 
