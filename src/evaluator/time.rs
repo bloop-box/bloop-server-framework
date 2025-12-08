@@ -2,6 +2,7 @@ use crate::achievement::AchievementContext;
 use crate::evaluator::{EvalResult, Evaluator};
 use chrono::{LocalResult, NaiveTime, Timelike};
 use std::fmt::Debug;
+use std::ops::Add;
 use std::time::Duration;
 use thiserror::Error;
 
@@ -86,6 +87,9 @@ impl TimeEvaluator {
     }
 }
 
+const MINUTE: Duration = Duration::from_secs(60);
+const HOUR: Duration = Duration::from_secs(60 * 60);
+
 impl<Player, Metadata, Trigger> Evaluator<Player, Metadata, Trigger> for TimeEvaluator {
     fn evaluate(
         &self,
@@ -93,7 +97,7 @@ impl<Player, Metadata, Trigger> Evaluator<Player, Metadata, Trigger> for TimeEva
     ) -> impl Into<EvalResult> {
         let now = ctx.current_bloop.recorded_at.with_timezone(&self.timezone);
 
-        let target_time = now.with_time(
+        let from = now.with_time(
             NaiveTime::from_hms_opt(
                 self.hour.unwrap_or(now.hour()),
                 self.minute.unwrap_or(now.minute()),
@@ -102,13 +106,15 @@ impl<Player, Metadata, Trigger> Evaluator<Player, Metadata, Trigger> for TimeEva
             .unwrap(),
         );
 
-        let target_time = match target_time {
-            LocalResult::Single(target_time) => target_time,
-            LocalResult::Ambiguous(earliest, _) => earliest,
+        let (from, to) = match from {
+            LocalResult::Single(target_time) => (target_time, target_time),
+            LocalResult::Ambiguous(earliest, latest) => (earliest, latest),
             LocalResult::None => return false,
         };
 
-        now >= target_time && now <= target_time + self.leeway
+        let to = to.add(if self.minute.is_some() { MINUTE } else { HOUR });
+
+        now >= from && now < to + self.leeway
     }
 }
 
@@ -179,8 +185,7 @@ mod tests {
             .unwrap()
             .with_timezone(&Utc);
         let mut builder = make_ctx_builder_for_time(time);
-        let evaluator =
-            TimeEvaluator::new(Some(9), None, Berlin, Some(Duration::from_secs(1800))).unwrap();
+        let evaluator = TimeEvaluator::new(Some(9), None, Berlin, None).unwrap();
         assert_eq!(
             evaluator.evaluate(&builder.build()).into(),
             EvalResult::AwardSelf
@@ -194,8 +199,7 @@ mod tests {
             .unwrap()
             .with_timezone(&Utc);
         let mut builder = make_ctx_builder_for_time(time);
-        let evaluator =
-            TimeEvaluator::new(None, Some(45), Berlin, Some(Duration::from_secs(60))).unwrap();
+        let evaluator = TimeEvaluator::new(None, Some(45), Berlin, None).unwrap();
         assert_eq!(
             evaluator.evaluate(&builder.build()).into(),
             EvalResult::AwardSelf
@@ -204,10 +208,9 @@ mod tests {
 
     #[test]
     fn dst_gap_returns_false() {
-        let time = Utc.with_ymd_and_hms(2024, 10, 27, 1, 30, 0).unwrap();
+        let time = Utc.with_ymd_and_hms(2024, 3, 31, 1, 30, 0).unwrap();
         let mut builder = make_ctx_builder_for_time(time);
-        let evaluator =
-            TimeEvaluator::new(Some(2), Some(30), Berlin, Some(Duration::from_secs(60))).unwrap();
+        let evaluator = TimeEvaluator::new(Some(2), Some(30), Berlin, None).unwrap();
         assert_eq!(
             evaluator.evaluate(&builder.build()).into(),
             EvalResult::NoAward
@@ -215,11 +218,21 @@ mod tests {
     }
 
     #[test]
-    fn handles_ambiguous_time() {
+    fn handles_ambiguous_earliest_time() {
         let time = Utc.with_ymd_and_hms(2024, 10, 27, 0, 30, 0).unwrap();
         let mut builder = make_ctx_builder_for_time(time);
-        let evaluator =
-            TimeEvaluator::new(Some(2), Some(30), Berlin, Some(Duration::from_secs(60))).unwrap();
+        let evaluator = TimeEvaluator::new(Some(2), Some(30), Berlin, None).unwrap();
+        assert_eq!(
+            evaluator.evaluate(&builder.build()).into(),
+            EvalResult::AwardSelf
+        );
+    }
+
+    #[test]
+    fn handles_ambiguous_latest_time() {
+        let time = Utc.with_ymd_and_hms(2024, 10, 27, 1, 30, 0).unwrap();
+        let mut builder = make_ctx_builder_for_time(time);
+        let evaluator = TimeEvaluator::new(Some(2), Some(30), Berlin, None).unwrap();
         assert_eq!(
             evaluator.evaluate(&builder.build()).into(),
             EvalResult::AwardSelf
