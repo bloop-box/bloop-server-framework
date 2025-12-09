@@ -458,12 +458,15 @@ impl IntoSubsystem<NeverError> for StatisticsServer {
 pub enum BuilderError {
     #[error("missing field: {0}")]
     MissingField(&'static str),
+
+    #[error(transparent)]
+    AddrParse(#[from] std::net::AddrParseError),
 }
 
 /// Builder for creating a [StatisticsServer] instance.
 #[derive(Debug, Default)]
 pub struct StatisticsServerBuilder {
-    addr: Option<SocketAddr>,
+    address: Option<String>,
     tz: Option<Tz>,
     stats: Option<HashMap<String, ClientStats>>,
     event_rx: Option<broadcast::Receiver<Event>>,
@@ -473,7 +476,7 @@ impl StatisticsServerBuilder {
     /// Creates a new empty builder.
     pub fn new() -> Self {
         Self {
-            addr: None,
+            address: None,
             tz: None,
             stats: None,
             event_rx: None,
@@ -481,8 +484,8 @@ impl StatisticsServerBuilder {
     }
 
     /// Sets the listening address for the statistics server.
-    pub fn address(mut self, address: impl Into<SocketAddr>) -> Self {
-        self.addr = Some(address.into());
+    pub fn address(mut self, address: impl Into<String>) -> Self {
+        self.address = Some(address.into());
         self
     }
 
@@ -508,8 +511,13 @@ impl StatisticsServerBuilder {
 
     /// Consumes the builder and produces a configured [StatisticsServer].
     pub fn build(self) -> Result<StatisticsServer, BuilderError> {
+        let addr: SocketAddr = self
+            .address
+            .ok_or(BuilderError::MissingField("address"))?
+            .parse()?;
+
         Ok(StatisticsServer {
-            addr: self.addr.ok_or(BuilderError::MissingField("addr"))?,
+            addr,
             tz: self.tz.unwrap_or(Tz::UTC),
             stats: Arc::new(RwLock::new(StatsTracker::new(
                 self.stats.unwrap_or_default(),
@@ -646,15 +654,14 @@ mod tests {
 
     #[test]
     fn build_succeeds_with_all_fields() {
-        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 12345);
         let builder = StatisticsServerBuilder::new()
-            .address(addr)
+            .address("localhost:12345")
             .tz(chrono_tz::Europe::London)
             .stats(dummy_stats())
             .event_rx(dummy_event_rx());
 
         let server = builder.build().unwrap();
-        assert_eq!(server.addr, addr);
+        assert_eq!(server.addr, "localhost:12345".parse().unwrap());
         assert_eq!(server.tz, chrono_tz::Europe::London);
     }
 
@@ -669,9 +676,8 @@ mod tests {
     }
     #[test]
     fn build_fails_if_event_rx_missing() {
-        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 12345);
         let builder = StatisticsServerBuilder::new()
-            .address(addr)
+            .address("localhost:12345")
             .stats(dummy_stats());
 
         let err = builder.build().unwrap_err();
@@ -680,9 +686,8 @@ mod tests {
 
     #[test]
     fn build_defaults_tz_to_utc() {
-        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 12345);
         let builder = StatisticsServerBuilder::new()
-            .address(addr)
+            .address("localhost:12345")
             .stats(dummy_stats())
             .event_rx(dummy_event_rx());
 
@@ -693,14 +698,13 @@ mod tests {
     #[tokio::test]
     #[timeout(1000)]
     async fn server_handles_bloop_processed_event() {
-        let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
         let tz = Tz::UTC;
         let stats_map = HashMap::<String, ClientStats>::new();
 
         let (sender, event_rx) = broadcast::channel(16);
 
         let mut server = StatisticsServerBuilder::new()
-            .address(addr)
+            .address("localhost:12345")
             .tz(tz)
             .stats(stats_map)
             .event_rx(event_rx)
@@ -735,7 +739,7 @@ mod tests {
             .unwrap();
 
         let mut server = StatisticsServerBuilder::new()
-            .address(local_addr)
+            .address(local_addr.to_string())
             .event_rx(event_rx)
             .build()
             .unwrap();
