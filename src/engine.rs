@@ -190,11 +190,11 @@ where
             let player = bloop.player();
             player.awarded_achievements().keys().cloned().collect()
         };
-        let metadata = self.state.lock().await;
+        let state = self.state.lock().await;
         let ctx = AchievementContext::new(
             bloop,
             &self.bloop_provider,
-            &*metadata,
+            &*state,
             &mut self.trigger_registry,
         );
 
@@ -430,8 +430,8 @@ where
         self
     }
 
-    pub fn metadata(mut self, metadata: Arc<Mutex<State>>) -> Self {
-        self.state = Some(metadata);
+    pub fn state(mut self, state: Arc<Mutex<State>>) -> Self {
+        self.state = Some(state);
         self
     }
 
