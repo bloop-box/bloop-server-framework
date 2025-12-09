@@ -37,7 +37,6 @@ chrono-tz = "0.10.4"
 cached = "0.56.0"
 num-integer = "0.1.46"
 tokio = { version = "1.48", features = ["fs", "io-std", "io-util", "macros", "net", "rt", "sync", "time"] }
-async-trait = "0.1.89"
 tokio-rustls = "0.26.4"
 rustls = "0.23.35"
 thiserror = "2.0"

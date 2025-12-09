@@ -1,7 +1,6 @@
 use crate::event::Event;
 #[cfg(test)]
 use crate::test_utils::Utc;
-use async_trait::async_trait;
 use chrono::DateTime;
 #[cfg(not(test))]
 use chrono::Utc;
@@ -139,7 +138,6 @@ impl HealthReport {
 }
 
 /// A trait for sending health reports asynchronously.
-#[async_trait]
 pub trait HealthReportSender {
     type Error: std::fmt::Debug + std::fmt::Display + Send + Sync + 'static;
 
@@ -149,7 +147,11 @@ pub trait HealthReportSender {
     /// notifications should be suppressed if possible.
     ///
     /// Returns `Ok(())` on success, or an error of type `Self::Error` on failure.
-    async fn send(&mut self, report: &HealthReport, silent: bool) -> Result<(), Self::Error>;
+    fn send(
+        &mut self,
+        report: &HealthReport,
+        silent: bool,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
 #[derive(Debug, Error)]
@@ -170,7 +172,6 @@ pub enum BuilderError {
 ///
 /// ```
 /// use std::convert::Infallible;
-/// use async_trait::async_trait;
 /// use tokio::sync::broadcast;
 /// use bloop_server_framework::health_monitor::{
 ///     HealthMonitorBuilder,
@@ -180,7 +181,6 @@ pub enum BuilderError {
 ///
 /// struct DummySender;
 ///
-/// #[async_trait]
 /// impl HealthReportSender for DummySender {
 ///     type Error = Infallible;
 ///
@@ -600,10 +600,10 @@ impl<T: HealthReportSender> HealthMonitor<T> {
 #[derive(Debug, Error)]
 pub enum NeverError {}
 
-#[async_trait]
+#[cfg(feature = "tokio-graceful-shutdown")]
 impl<T: HealthReportSender + Send + Sync + 'static> IntoSubsystem<NeverError> for HealthMonitor<T> {
-    async fn run(mut self, subsys: SubsystemHandle) -> Result<(), NeverError> {
-        let _ = self.listen().cancel_on_shutdown(&subsys).await;
+    async fn run(mut self, subsys: &mut SubsystemHandle) -> Result<(), NeverError> {
+        let _ = self.listen().cancel_on_shutdown(subsys).await;
 
         Ok(())
     }
@@ -613,7 +613,6 @@ impl<T: HealthReportSender + Send + Sync + 'static> IntoSubsystem<NeverError> fo
 mod tests {
     use super::*;
     use crate::event::Event;
-    use async_trait::async_trait;
     use ntest::timeout;
     use std::convert::Infallible;
     use std::sync::{Arc, Mutex};
@@ -626,7 +625,6 @@ mod tests {
         last: Arc<Mutex<Option<(HealthReport, bool)>>>,
     }
 
-    #[async_trait]
     impl HealthReportSender for MockSender {
         type Error = Infallible;
 

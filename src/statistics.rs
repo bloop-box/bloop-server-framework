@@ -1,6 +1,5 @@
 use crate::bloop::ProcessedBloop;
 use crate::event::Event;
-use async_trait::async_trait;
 use bytes::Bytes;
 use chrono::{DateTime, NaiveDate, Timelike, Utc};
 use chrono_tz::Tz;
@@ -270,10 +269,10 @@ impl StatsTracker {
     }
 
     async fn snapshot(&self, now: DateTime<Utc>) -> StatsSnapshot {
-        if let Some(snapshot) = self.cached_snapshot.read().await.as_ref() {
-            if snapshot.created_at > now - chrono::Duration::minutes(1) {
-                return snapshot.clone();
-            }
+        if let Some(snapshot) = self.cached_snapshot.read().await.as_ref()
+            && snapshot.created_at > now - chrono::Duration::minutes(1)
+        {
+            return snapshot.clone();
         }
 
         let snapshot = self.compute_snapshot(now);
@@ -447,10 +446,9 @@ impl StatisticsServer {
 pub enum NeverError {}
 
 #[cfg(feature = "tokio-graceful-shutdown")]
-#[async_trait]
 impl IntoSubsystem<NeverError> for StatisticsServer {
-    async fn run(mut self, subsys: SubsystemHandle) -> Result<(), NeverError> {
-        let _ = self.listen().cancel_on_shutdown(&subsys).await;
+    async fn run(mut self, subsys: &mut SubsystemHandle) -> Result<(), NeverError> {
+        let _ = self.listen().cancel_on_shutdown(subsys).await;
 
         Ok(())
     }

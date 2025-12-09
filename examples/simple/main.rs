@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, RwLock, broadcast, mpsc};
-use tokio_graceful_shutdown::{IntoSubsystem, SubsystemBuilder, Toplevel};
+use tokio_graceful_shutdown::{IntoSubsystem, SubsystemBuilder, SubsystemHandle, Toplevel};
 use uuid::uuid;
 
 /// Shortcut to make it easier to define a bunch of achievements without having to repeat generics.
@@ -85,7 +85,7 @@ async fn main() -> anyhow::Result<()> {
         event_rx: event_tx.subscribe(),
     };
 
-    Toplevel::new(|s| async move {
+    Toplevel::new(async |s: &mut SubsystemHandle| {
         s.start(SubsystemBuilder::new("Engine", engine.into_subsystem()));
         s.start(SubsystemBuilder::new(
             "NetworkListener",

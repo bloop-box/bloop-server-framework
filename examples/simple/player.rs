@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use bloop_server_framework::event::Event;
 use bloop_server_framework::nfc_uid::NfcUid;
 use bloop_server_framework::player::{PlayerInfo, PlayerMutator};
@@ -91,10 +90,9 @@ impl AwardedAchievementsPersister {
     }
 }
 
-#[async_trait]
 impl IntoSubsystem<anyhow::Error> for AwardedAchievementsPersister {
-    async fn run(mut self, subsys: SubsystemHandle) -> anyhow::Result<()> {
-        let _ = self.process_events().cancel_on_shutdown(&subsys).await;
+    async fn run(mut self, subsys: &mut SubsystemHandle) -> anyhow::Result<()> {
+        let _ = self.process_events().cancel_on_shutdown(subsys).await;
 
         Ok(())
     }

@@ -7,8 +7,6 @@ use crate::engine::EngineRequest;
 use crate::event::Event;
 use crate::message::{Capabilities, ClientMessage, ErrorResponse, Message, ServerMessage};
 use argon2::{Argon2, PasswordVerifier, password_hash::PasswordHashString};
-#[cfg(feature = "tokio-graceful-shutdown")]
-use async_trait::async_trait;
 use rustls::ServerConfig;
 use rustls::pki_types::{
     CertificateDer, PrivateKeyDer,
@@ -282,10 +280,9 @@ impl NetworkListener {
 }
 
 #[cfg(feature = "tokio-graceful-shutdown")]
-#[async_trait]
 impl IntoSubsystem<Error> for NetworkListener {
-    async fn run(mut self, subsys: SubsystemHandle) -> Result<()> {
-        if let Ok(result) = self.listen().cancel_on_shutdown(&subsys).await {
+    async fn run(self, subsys: &mut SubsystemHandle) -> Result<()> {
+        if let Ok(result) = self.listen().cancel_on_shutdown(subsys).await {
             result?
         }
 

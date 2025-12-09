@@ -18,7 +18,6 @@
 
 use crate::event::Event;
 use crate::player::PlayerInfo;
-use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::cmp::Reverse;
 use std::collections::{HashMap, VecDeque, vec_deque};
@@ -251,11 +250,13 @@ impl<Player> From<&Bloop<Player>> for ProcessedBloop {
 }
 
 /// Interface for persisting processed bloops asynchronously.
-#[async_trait]
 pub trait BloopRepository {
     type Error: std::fmt::Debug + std::fmt::Display + Send + Sync + 'static;
 
-    async fn persist_batch(&self, bloops: &[ProcessedBloop]) -> Result<(), Self::Error>;
+    fn persist_batch(
+        &self,
+        bloops: &[ProcessedBloop],
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
 /// A sink that buffers processed bloops and persists them in batches.
@@ -337,13 +338,12 @@ impl<R: BloopRepository> ProcessedBloopSink<R> {
 pub enum NeverError {}
 
 #[cfg(feature = "tokio-graceful-shutdown")]
-#[async_trait]
 impl<R> IntoSubsystem<NeverError> for ProcessedBloopSink<R>
 where
     R: BloopRepository + Send + Sync + 'static,
 {
-    async fn run(mut self, subsys: SubsystemHandle) -> Result<(), NeverError> {
-        let _ = self.process_events().cancel_on_shutdown(&subsys).await;
+    async fn run(mut self, subsys: &mut SubsystemHandle) -> Result<(), NeverError> {
+        let _ = self.process_events().cancel_on_shutdown(subsys).await;
         self.flush().await;
 
         Ok(())
@@ -566,7 +566,6 @@ mod tests {
         }
     }
 
-    #[async_trait::async_trait]
     impl BloopRepository for DummyRepo {
         type Error = &'static str;
 

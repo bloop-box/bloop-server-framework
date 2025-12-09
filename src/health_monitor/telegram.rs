@@ -1,5 +1,4 @@
 use crate::health_monitor::{HealthReport, HealthReportSender};
-use async_trait::async_trait;
 use teloxide::types::{ChatId, MessageId};
 use teloxide::{Bot, RequestError, prelude::*};
 use tracing::error;
@@ -43,7 +42,6 @@ impl TelegramReportHealthSender {
     }
 }
 
-#[async_trait]
 impl HealthReportSender for TelegramReportHealthSender {
     type Error = RequestError;
 

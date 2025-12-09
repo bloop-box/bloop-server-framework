@@ -1,5 +1,4 @@
 use crate::player::Player;
-use async_trait::async_trait;
 use bloop_server_framework::bloop::{Bloop, BloopRepository, ProcessedBloop};
 use bloop_server_framework::player::PlayerRegistry;
 use std::convert::Infallible;
@@ -19,7 +18,6 @@ impl DummyBloopRepository {
     }
 }
 
-#[async_trait]
 impl BloopRepository for DummyBloopRepository {
     type Error = anyhow::Error;
 

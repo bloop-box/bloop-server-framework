@@ -5,8 +5,6 @@ use crate::message::{AchievementRecord, DataHash, ErrorResponse, ServerMessage};
 use crate::nfc_uid::NfcUid;
 use crate::player::{PlayerInfo, PlayerMutator, PlayerRegistry};
 use crate::trigger::TriggerRegistry;
-#[cfg(feature = "tokio-graceful-shutdown")]
-use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
@@ -340,7 +338,6 @@ where
 pub enum NeverError {}
 
 #[cfg(feature = "tokio-graceful-shutdown")]
-#[async_trait]
 impl<Metadata, Player, State, Trigger> IntoSubsystem<NeverError>
     for Engine<Metadata, Player, State, Trigger>
 where
@@ -349,8 +346,8 @@ where
     State: Send + Sync + 'static,
     Trigger: Copy + PartialEq + Eq + Debug + Send + Sync + 'static,
 {
-    async fn run(mut self, subsys: SubsystemHandle) -> Result<(), NeverError> {
-        let _ = self.process_requests().cancel_on_shutdown(&subsys).await;
+    async fn run(mut self, subsys: &mut SubsystemHandle) -> Result<(), NeverError> {
+        let _ = self.process_requests().cancel_on_shutdown(subsys).await;
         Ok(())
     }
 }
