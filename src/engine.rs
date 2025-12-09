@@ -365,7 +365,6 @@ pub enum BuilderError {
 pub struct EngineBuilder<Player, State = (), Trigger = (), Metadata = ()>
 where
     Player: PlayerInfo + PlayerMutator,
-    Metadata: Default,
     Trigger: Copy,
 {
     bloops: Vec<Bloop<Player>>,
@@ -383,7 +382,6 @@ where
 impl<Player, State, Trigger, Metadata> EngineBuilder<Player, State, Trigger, Metadata>
 where
     Player: PlayerInfo + PlayerMutator,
-    Metadata: Default,
     State: Default,
     Trigger: Copy + PartialEq + Eq + Debug,
 {
