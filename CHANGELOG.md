@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/bloop-box/bloop-server-framework/compare/v1.6.1...v1.7.0) (2025-12-09)
+
+
+### Features
+
+* **statistics:** accept server address as string ([369b415](https://github.com/bloop-box/bloop-server-framework/commit/369b415430d8ab269c9bdfb1c9b97b69ff7bc126))
+
 ## [1.6.1](https://github.com/bloop-box/bloop-server-framework/compare/v1.6.0...v1.6.1) (2025-12-09)
 
 
