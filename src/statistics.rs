@@ -481,13 +481,13 @@ impl StatisticsServerBuilder {
     }
 
     /// Sets the listening address for the statistics server.
-    pub fn with_addr(mut self, addr: SocketAddr) -> Self {
-        self.addr = Some(addr);
+    pub fn address(mut self, address: impl Into<SocketAddr>) -> Self {
+        self.addr = Some(address.into());
         self
     }
 
     /// Sets the timezone to time specific statistics.
-    pub fn with_tz(mut self, tz: Tz) -> Self {
+    pub fn tz(mut self, tz: Tz) -> Self {
         self.tz = Some(tz);
         self
     }
@@ -495,13 +495,13 @@ impl StatisticsServerBuilder {
     /// Sets the initial statistics.
     ///
     /// This is typically loaded from persistent storage (e.g., database) at startup.
-    pub fn with_stats(mut self, stats: HashMap<String, ClientStats>) -> Self {
+    pub fn stats(mut self, stats: HashMap<String, ClientStats>) -> Self {
         self.stats = Some(stats);
         self
     }
 
     /// Sets the event receiver the server listens to for tracking events.
-    pub fn with_event_rx(mut self, event_rx: broadcast::Receiver<Event>) -> Self {
+    pub fn event_rx(mut self, event_rx: broadcast::Receiver<Event>) -> Self {
         self.event_rx = Some(event_rx);
         self
     }
@@ -648,10 +648,10 @@ mod tests {
     fn build_succeeds_with_all_fields() {
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 12345);
         let builder = StatisticsServerBuilder::new()
-            .with_addr(addr)
-            .with_tz(chrono_tz::Europe::London)
-            .with_stats(dummy_stats())
-            .with_event_rx(dummy_event_rx());
+            .address(addr)
+            .tz(chrono_tz::Europe::London)
+            .stats(dummy_stats())
+            .event_rx(dummy_event_rx());
 
         let server = builder.build().unwrap();
         assert_eq!(server.addr, addr);
@@ -661,8 +661,8 @@ mod tests {
     #[test]
     fn build_fails_if_addr_missing() {
         let builder = StatisticsServerBuilder::new()
-            .with_stats(dummy_stats())
-            .with_event_rx(dummy_event_rx());
+            .stats(dummy_stats())
+            .event_rx(dummy_event_rx());
 
         let err = builder.build().unwrap_err();
         assert!(matches!(err, BuilderError::MissingField(field) if field == "addr"));
@@ -671,8 +671,8 @@ mod tests {
     fn build_fails_if_event_rx_missing() {
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 12345);
         let builder = StatisticsServerBuilder::new()
-            .with_addr(addr)
-            .with_stats(dummy_stats());
+            .address(addr)
+            .stats(dummy_stats());
 
         let err = builder.build().unwrap_err();
         assert!(matches!(err, BuilderError::MissingField(field) if field == "event_rx"));
@@ -682,9 +682,9 @@ mod tests {
     fn build_defaults_tz_to_utc() {
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 12345);
         let builder = StatisticsServerBuilder::new()
-            .with_addr(addr)
-            .with_stats(dummy_stats())
-            .with_event_rx(dummy_event_rx());
+            .address(addr)
+            .stats(dummy_stats())
+            .event_rx(dummy_event_rx());
 
         let server = builder.build().unwrap();
         assert_eq!(server.tz, UTC);
@@ -700,10 +700,10 @@ mod tests {
         let (sender, event_rx) = broadcast::channel(16);
 
         let mut server = StatisticsServerBuilder::new()
-            .with_addr(addr)
-            .with_tz(tz)
-            .with_stats(stats_map)
-            .with_event_rx(event_rx)
+            .address(addr)
+            .tz(tz)
+            .stats(stats_map)
+            .event_rx(event_rx)
             .build()
             .unwrap();
         let notify = server.test_notify_event_processed.clone();
@@ -735,8 +735,8 @@ mod tests {
             .unwrap();
 
         let mut server = StatisticsServerBuilder::new()
-            .with_addr(local_addr)
-            .with_event_rx(event_rx)
+            .address(local_addr)
+            .event_rx(event_rx)
             .build()
             .unwrap();
         let notify = server.test_notify_event_processed.clone();
