@@ -1,4 +1,5 @@
 use hex::{FromHex, FromHexError, decode_to_slice};
+use serde::{Deserialize, Deserializer, Serialize};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -71,6 +72,25 @@ impl FromHex for NfcUid {
         decode_to_slice(hex, &mut decoded)?;
 
         NfcUid::try_from(decoded.as_slice()).map_err(|_| FromHexError::InvalidStringLength)
+    }
+}
+
+impl<'de> Deserialize<'de> for NfcUid {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let hex = String::deserialize(deserializer)?;
+        NfcUid::from_hex(&hex).map_err(serde::de::Error::custom)
+    }
+}
+
+impl Serialize for NfcUid {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&hex::encode(self.as_bytes()))
     }
 }
 
