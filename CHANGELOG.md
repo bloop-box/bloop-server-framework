@@ -1,3 +1,10 @@
+## [1.5.1](https://github.com/bloop-box/bloop-server-framework/compare/v1.5.0...v1.5.1) (2025-12-09)
+
+
+### Bug Fixes
+
+* **engine:** rename falsely named metadata to state ([731a2bd](https://github.com/bloop-box/bloop-server-framework/commit/731a2bd1b502501c09591aea5070ac2655710cbe))
+
 # [1.5.0](https://github.com/bloop-box/bloop-server-framework/compare/v1.4.2...v1.5.0) (2025-12-09)
 
 
