@@ -1,3 +1,10 @@
+## [1.5.2](https://github.com/bloop-box/bloop-server-framework/compare/v1.5.1...v1.5.2) (2025-12-09)
+
+
+### Bug Fixes
+
+* **engine:** require Default requirement for Metadata ([82ba219](https://github.com/bloop-box/bloop-server-framework/commit/82ba219b01c57630ba830793a70b321442a5d05f))
+
 ## [1.5.1](https://github.com/bloop-box/bloop-server-framework/compare/v1.5.0...v1.5.1) (2025-12-09)
 
 
