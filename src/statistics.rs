@@ -537,7 +537,6 @@ mod tests {
     use chrono::{Duration, NaiveTime, TimeZone};
     use chrono_tz::UTC;
     use ntest::timeout;
-    use std::net::{IpAddr, Ipv4Addr};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use uuid::Uuid;
 
@@ -655,13 +654,13 @@ mod tests {
     #[test]
     fn build_succeeds_with_all_fields() {
         let builder = StatisticsServerBuilder::new()
-            .address("localhost:12345")
+            .address("127.0.0.1:12345")
             .tz(chrono_tz::Europe::London)
             .stats(dummy_stats())
             .event_rx(dummy_event_rx());
 
         let server = builder.build().unwrap();
-        assert_eq!(server.addr, "localhost:12345".parse().unwrap());
+        assert_eq!(server.addr, "127.0.0.1:12345".parse().unwrap());
         assert_eq!(server.tz, chrono_tz::Europe::London);
     }
 
@@ -672,12 +671,12 @@ mod tests {
             .event_rx(dummy_event_rx());
 
         let err = builder.build().unwrap_err();
-        assert!(matches!(err, BuilderError::MissingField(field) if field == "addr"));
+        assert!(matches!(err, BuilderError::MissingField(field) if field == "address"));
     }
     #[test]
     fn build_fails_if_event_rx_missing() {
         let builder = StatisticsServerBuilder::new()
-            .address("localhost:12345")
+            .address("127.0.0.1:12345")
             .stats(dummy_stats());
 
         let err = builder.build().unwrap_err();
@@ -687,7 +686,7 @@ mod tests {
     #[test]
     fn build_defaults_tz_to_utc() {
         let builder = StatisticsServerBuilder::new()
-            .address("localhost:12345")
+            .address("127.0.0.1:12345")
             .stats(dummy_stats())
             .event_rx(dummy_event_rx());
 
@@ -704,7 +703,7 @@ mod tests {
         let (sender, event_rx) = broadcast::channel(16);
 
         let mut server = StatisticsServerBuilder::new()
-            .address("localhost:12345")
+            .address("127.0.0.1:12345")
             .tz(tz)
             .stats(stats_map)
             .event_rx(event_rx)
