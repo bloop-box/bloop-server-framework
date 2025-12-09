@@ -1,3 +1,10 @@
+## [1.6.1](https://github.com/bloop-box/bloop-server-framework/compare/v1.6.0...v1.6.1) (2025-12-09)
+
+
+### Bug Fixes
+
+* **statistics:** align server builder pattern with other builders ([add77b2](https://github.com/bloop-box/bloop-server-framework/commit/add77b2bad19540bbcb777a3f02a3805244163de))
+
 # [1.6.0](https://github.com/bloop-box/bloop-server-framework/compare/v1.5.2...v1.6.0) (2025-12-09)
 
 
