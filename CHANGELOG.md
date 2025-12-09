@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/bloop-box/bloop-server-framework/compare/v1.4.2...v1.5.0) (2025-12-09)
+
+
+### Features
+
+* **nfc_uid:** add serde support ([6fc1451](https://github.com/bloop-box/bloop-server-framework/commit/6fc14516b4e1e0f94bcc3349b267891544a2da9a))
+
 ## [1.4.2](https://github.com/bloop-box/bloop-server-framework/compare/v1.4.1...v1.4.2) (2025-12-08)
 
 
