@@ -1,3 +1,15 @@
+# [1.6.0](https://github.com/bloop-box/bloop-server-framework/compare/v1.5.2...v1.6.0) (2025-12-09)
+
+
+### Bug Fixes
+
+* bump dependencies to latest ([3ead591](https://github.com/bloop-box/bloop-server-framework/commit/3ead5913f35acea545902afae2244cb27df2f51c))
+
+
+### Features
+
+* remove async_trait dep ([bcba7f7](https://github.com/bloop-box/bloop-server-framework/commit/bcba7f7a1c757098e3bc8d51edc12ca3e390520d))
+
 ## [1.5.2](https://github.com/bloop-box/bloop-server-framework/compare/v1.5.1...v1.5.2) (2025-12-09)
 
 
