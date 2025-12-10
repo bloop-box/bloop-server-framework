@@ -1,5 +1,4 @@
 use crate::achievement::AchievementContext;
-use crate::bloop::Bloop;
 use crate::builder::{NoValue, Value};
 use crate::evaluator::{AwardMode, EvalResult, Evaluator};
 use std::fmt;
@@ -63,10 +62,10 @@ impl StreakEvaluatorBuilder<Value<usize>, Value<Duration>> {
         Player: 'static,
         State: 'static,
         Trigger: 'static,
-        P: Fn(&Bloop<Player>) -> bool + Send + Sync + 'static,
+        P: Fn(&Player) -> bool + Send + Sync + 'static,
     {
         fn derive_ctx<Player, State, Trigger>(_ctx: &AchievementContext<Player, State, Trigger>) {}
-        let predicate_wrapper = move |bloop: &Bloop<Player>, _: &()| predicate(bloop);
+        let predicate_wrapper = move |player: &Player, _: &()| predicate(player);
 
         StreakEvaluator {
             min_required: self.min_required.0,
@@ -89,7 +88,7 @@ impl StreakEvaluatorBuilder<Value<usize>, Value<Duration>> {
     ) -> impl Evaluator<Player, State, Trigger>
     where
         DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-        P: Fn(&Bloop<Player>, &C) -> bool + Send + Sync + 'static,
+        P: Fn(&Player, &C) -> bool + Send + Sync + 'static,
     {
         StreakEvaluator {
             min_required: self.min_required.0,
@@ -109,7 +108,7 @@ impl StreakEvaluatorBuilder<Value<usize>, Value<Duration>> {
 pub struct StreakEvaluator<Player, State, Trigger, C, DC, P>
 where
     DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-    P: Fn(&Bloop<Player>, &C) -> bool + Send + Sync + 'static,
+    P: Fn(&Player, &C) -> bool + Send + Sync + 'static,
 {
     min_required: usize,
     max_window: Duration,
@@ -122,7 +121,7 @@ where
 impl<Player, State, Trigger, C, DC, P> StreakEvaluator<Player, State, Trigger, C, DC, P>
 where
     DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-    P: Fn(&Bloop<Player>, &C) -> bool + Send + Sync + 'static,
+    P: Fn(&Player, &C) -> bool + Send + Sync + 'static,
 {
     pub fn builder() -> StreakEvaluatorBuilder<NoValue, NoValue> {
         StreakEvaluatorBuilder::new()
@@ -133,7 +132,7 @@ impl<Player, State, Trigger, C, DC, P> Evaluator<Player, State, Trigger>
     for StreakEvaluator<Player, State, Trigger, C, DC, P>
 where
     DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-    P: Fn(&Bloop<Player>, &C) -> bool + Send + Sync + 'static,
+    P: Fn(&Player, &C) -> bool + Send + Sync + 'static,
 {
     fn evaluate(&self, ctx: &AchievementContext<Player, State, Trigger>) -> impl Into<EvalResult> {
         let derived_ctx = (self.derive_ctx)(ctx);
@@ -146,8 +145,9 @@ where
             .take(self.min_required);
 
         for bloop in bloops {
-            println!("{} {}", bloop.player_id, self.min_required);
-            if player_ids.contains(&bloop.player_id) || !(self.predicate)(bloop, &derived_ctx) {
+            if player_ids.contains(&bloop.player_id)
+                || !(self.predicate)(&bloop.player(), &derived_ctx)
+            {
                 return EvalResult::NoAward;
             }
 
@@ -168,7 +168,7 @@ where
 impl<Player, State, Trigger, C, DC, P> Debug for StreakEvaluator<Player, State, Trigger, C, DC, P>
 where
     DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-    P: Fn(&Bloop<Player>, &C) -> bool + Send + Sync + 'static,
+    P: Fn(&Player, &C) -> bool + Send + Sync + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("StreakEvaluator")
@@ -204,7 +204,7 @@ mod tests {
         let evaluator = StreakEvaluatorBuilder::new()
             .min_required(2)
             .max_window(Duration::from_secs(60))
-            .build(|bloop: &Bloop<MockPlayer>| bloop.player().name == "foo");
+            .build(|player: &MockPlayer| player.name == "foo");
 
         let current = make_bloop("client1", "foo", 0);
         let past = vec![
@@ -224,7 +224,7 @@ mod tests {
             .min_required(3)
             .max_window(Duration::from_secs(60))
             .award_all()
-            .build(|bloop: &Bloop<MockPlayer>| bloop.player().name == "foo");
+            .build(|player: &MockPlayer| player.name == "foo");
 
         let current = make_bloop("client1", "foo", 0);
         let b1 = make_bloop("client1", "foo", 10);
@@ -250,7 +250,7 @@ mod tests {
         let evaluator = StreakEvaluatorBuilder::new()
             .min_required(1)
             .max_window(Duration::from_secs(60))
-            .build(|_bloop: &Bloop<MockPlayer>| false);
+            .build(|_player: &MockPlayer| false);
 
         let current = make_bloop("client1", "alice", 0);
         let b1 = make_bloop("client1", "alice", 10);
@@ -266,7 +266,7 @@ mod tests {
         let evaluator = StreakEvaluatorBuilder::new()
             .min_required(2)
             .max_window(Duration::from_secs(60))
-            .build(|bloop: &Bloop<MockPlayer>| bloop.player().name == "bob");
+            .build(|player: &MockPlayer| player.name == "bob");
 
         let current = make_bloop("client1", "alice", 0);
 
@@ -285,7 +285,7 @@ mod tests {
         let evaluator = StreakEvaluatorBuilder::new()
             .min_required(2)
             .max_window(Duration::from_secs(20))
-            .build(|bloop: &Bloop<MockPlayer>| bloop.player().name == "foo");
+            .build(|player: &MockPlayer| player.name == "foo");
 
         let current = make_bloop("client1", "foo", 0);
         let b1 = make_bloop("client1", "foo", 30);
@@ -303,9 +303,7 @@ mod tests {
             .max_window(Duration::from_secs(60))
             .build_with_derived_ctx(
                 |_ctx| vec!["carol"],
-                |bloop: &Bloop<MockPlayer>, allowed: &Vec<&str>| {
-                    allowed.contains(&bloop.player().name.as_str())
-                },
+                |player: &MockPlayer, allowed: &Vec<&str>| allowed.contains(&player.name.as_str()),
             );
 
         let current = make_bloop("client1", "bob", 0);

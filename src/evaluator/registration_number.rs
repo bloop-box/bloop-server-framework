@@ -1,5 +1,4 @@
 use crate::achievement::AchievementContext;
-use crate::bloop::Bloop;
 use crate::evaluator::Evaluator;
 use crate::evaluator::streak::StreakEvaluatorBuilder;
 use cached::proc_macro::cached;
@@ -79,7 +78,7 @@ where
     StreakEvaluatorBuilder::new()
         .min_required(min_required)
         .max_window(max_window)
-        .build(move |bloop: &Bloop<Player>| predicate(bloop.player().registration_number()))
+        .build(move |player: &Player| predicate(player.registration_number()))
 }
 
 /// Builds a [`crate::evaluator::streak::StreakEvaluator`] that matches
@@ -107,9 +106,8 @@ where
                     projector(number)
                 }
             },
-            move |bloop: &Bloop<Player>, reference: &V| {
-                let reg = bloop.player().registration_number();
-                projector(reg) == *reference
+            move |player: &Player, reference: &V| {
+                projector(player.registration_number()) == *reference
             },
         )
 }
