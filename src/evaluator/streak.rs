@@ -1,6 +1,6 @@
 use crate::achievement::AchievementContext;
 use crate::builder::{NoValue, Value};
-use crate::evaluator::{AwardMode, EvalResult, Evaluator};
+use crate::evaluator::{AwardMode, DerivedCtx, EvalResult, Evaluator};
 use std::fmt;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -64,7 +64,11 @@ impl StreakEvaluatorBuilder<Value<usize>, Value<Duration>> {
         Trigger: 'static,
         P: Fn(&Player) -> bool + Send + Sync + 'static,
     {
-        fn derive_ctx<Player, State, Trigger>(_ctx: &AchievementContext<Player, State, Trigger>) {}
+        fn derive_ctx<'a, Player, State, Trigger>(
+            _ctx: &'a AchievementContext<Player, State, Trigger>,
+        ) -> DerivedCtx<'a, ()> {
+            DerivedCtx::Owned(())
+        }
         let predicate_wrapper = move |player: &Player, _: &()| predicate(player);
 
         StreakEvaluator {
@@ -87,8 +91,11 @@ impl StreakEvaluatorBuilder<Value<usize>, Value<Duration>> {
         predicate: P,
     ) -> impl Evaluator<Player, State, Trigger> + Debug
     where
-        DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-        P: Fn(&Player, &C) -> bool + Send + Sync + 'static,
+        DC: for<'a> Fn(&'a AchievementContext<Player, State, Trigger>) -> DerivedCtx<'a, C>
+            + Send
+            + Sync
+            + 'static,
+        P: for<'a> Fn(&Player, &'a C) -> bool + Send + Sync + 'static,
     {
         StreakEvaluator {
             min_required: self.min_required.0,
@@ -107,8 +114,11 @@ impl StreakEvaluatorBuilder<Value<usize>, Value<Duration>> {
 /// matching bloops reach the `min_required` count.
 pub struct StreakEvaluator<Player, State, Trigger, C, DC, P>
 where
-    DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-    P: Fn(&Player, &C) -> bool + Send + Sync + 'static,
+    DC: for<'a> Fn(&'a AchievementContext<Player, State, Trigger>) -> DerivedCtx<'a, C>
+        + Send
+        + Sync
+        + 'static,
+    P: for<'a> Fn(&Player, &'a C) -> bool + Send + Sync + 'static,
 {
     min_required: usize,
     max_window: Duration,
@@ -121,22 +131,25 @@ where
 impl<Player, State, Trigger, C, DC, P> Evaluator<Player, State, Trigger>
     for StreakEvaluator<Player, State, Trigger, C, DC, P>
 where
-    DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-    P: Fn(&Player, &C) -> bool + Send + Sync + 'static,
+    DC: for<'a> Fn(&'a AchievementContext<Player, State, Trigger>) -> DerivedCtx<'a, C>
+        + Send
+        + Sync
+        + 'static,
+    P: for<'a> Fn(&Player, &'a C) -> bool + Send + Sync + 'static,
 {
     fn evaluate(&self, ctx: &AchievementContext<Player, State, Trigger>) -> impl Into<EvalResult> {
         let derived_ctx = (self.derive_ctx)(ctx);
+        let derived_ctx = derived_ctx.as_ref();
+        let filter = ctx.filter_within_window(self.max_window);
+
         let mut player_ids = Vec::with_capacity(self.min_required + 1);
         player_ids.push(ctx.current_bloop.player_id);
 
-        let bloops = ctx
-            .client_bloops()
-            .filter(ctx.filter_within_window(self.max_window))
-            .take(self.min_required);
+        let bloops = ctx.client_bloops().filter(filter).take(self.min_required);
 
         for bloop in bloops {
             if player_ids.contains(&bloop.player_id)
-                || !(self.predicate)(&bloop.player(), &derived_ctx)
+                || !(self.predicate)(&bloop.player(), derived_ctx)
             {
                 return EvalResult::NoAward;
             }
@@ -157,8 +170,11 @@ where
 
 impl<Player, State, Trigger, C, DC, P> Debug for StreakEvaluator<Player, State, Trigger, C, DC, P>
 where
-    DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-    P: Fn(&Player, &C) -> bool + Send + Sync + 'static,
+    DC: for<'a> Fn(&'a AchievementContext<Player, State, Trigger>) -> DerivedCtx<'a, C>
+        + Send
+        + Sync
+        + 'static,
+    P: for<'a> Fn(&Player, &'a C) -> bool + Send + Sync + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("StreakEvaluator")
@@ -292,7 +308,7 @@ mod tests {
             .min_required(1)
             .max_window(Duration::from_secs(60))
             .build_with_derived_ctx(
-                |_ctx| vec!["carol"],
+                |_ctx| DerivedCtx::Owned(vec!["carol"]),
                 |player: &MockPlayer, allowed: &Vec<&str>| allowed.contains(&player.name.as_str()),
             );
 

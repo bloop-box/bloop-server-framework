@@ -63,6 +63,25 @@ pub enum AwardMode {
     All,
 }
 
+/// A derived-context value that may either borrow from the `AchievementContext`
+/// for the duration of an evaluation or own its data.
+///
+/// This type lets `derive_ctx` return either a borrowed reference tied to the
+/// `ctx` lifetime (zero-copy) or an owned `C` (cloned/constructed on demand).
+pub enum DerivedCtx<'a, C> {
+    Borrowed(&'a C),
+    Owned(C),
+}
+
+impl<'a, T: Sized> AsRef<T> for DerivedCtx<'a, T> {
+    fn as_ref(&self) -> &T {
+        match self {
+            DerivedCtx::Borrowed(r) => r,
+            DerivedCtx::Owned(v) => v,
+        }
+    }
+}
+
 /// Trait for statically typed achievement evaluators.
 ///
 /// This is the primary abstraction for writing custom logic to evaluate whether

@@ -1,6 +1,6 @@
 use crate::achievement::AchievementContext;
-use crate::evaluator::Evaluator;
 use crate::evaluator::streak::StreakEvaluatorBuilder;
+use crate::evaluator::{DerivedCtx, Evaluator};
 use cached::proc_macro::cached;
 use num_integer::Roots;
 use std::fmt::Debug;
@@ -104,7 +104,7 @@ where
                 let projector = projector.clone();
                 move |ctx: &AchievementContext<Player, State, Trigger>| {
                     let number = ctx.current_bloop.player().registration_number();
-                    projector(number)
+                    DerivedCtx::Owned(projector(number))
                 }
             },
             move |player: &Player, reference: &V| {

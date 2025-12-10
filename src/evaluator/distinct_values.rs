@@ -1,7 +1,6 @@
 use crate::achievement::AchievementContext;
-use crate::bloop::Bloop;
 use crate::builder::{NoValue, Value};
-use crate::evaluator::{AwardMode, EvalResult, Evaluator};
+use crate::evaluator::{AwardMode, DerivedCtx, EvalResult, Evaluator};
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Debug;
@@ -82,7 +81,11 @@ impl DistinctValuesEvaluatorBuilder<Value<usize>, Value<Duration>> {
         E: Fn(&Player) -> ExtractResult<V> + Send + Sync + 'static,
         V: Eq + Hash + 'static,
     {
-        fn derive_ctx<Player, State, Trigger>(_ctx: &AchievementContext<Player, State, Trigger>) {}
+        fn derive_ctx<'a, Player, State, Trigger>(
+            _ctx: &'a AchievementContext<Player, State, Trigger>,
+        ) -> DerivedCtx<'a, ()> {
+            DerivedCtx::Owned(())
+        }
         let extract_wrapper = move |bloop: &Player, _: &()| extract(bloop);
 
         DistinctValuesEvaluator {
@@ -105,8 +108,11 @@ impl DistinctValuesEvaluatorBuilder<Value<usize>, Value<Duration>> {
         extract: E,
     ) -> impl Evaluator<Player, State, Trigger> + Debug
     where
-        DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-        E: Fn(&Player, &C) -> ExtractResult<V> + Send + Sync + 'static,
+        DC: for<'a> Fn(&'a AchievementContext<Player, State, Trigger>) -> DerivedCtx<'a, C>
+            + Send
+            + Sync
+            + 'static,
+        E: for<'a> Fn(&'a Player, &'a C) -> ExtractResult<V> + Send + Sync + 'static,
         V: Eq + Hash + 'static,
     {
         DistinctValuesEvaluator {
@@ -126,8 +132,11 @@ impl DistinctValuesEvaluatorBuilder<Value<usize>, Value<Duration>> {
 /// collected values reach the `min_required` count.
 pub struct DistinctValuesEvaluator<Player, State, Trigger, V, C, DC, E>
 where
-    DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-    E: Fn(&Player, &C) -> ExtractResult<V> + Send + Sync + 'static,
+    DC: for<'a> Fn(&'a AchievementContext<Player, State, Trigger>) -> DerivedCtx<'a, C>
+        + Send
+        + Sync
+        + 'static,
+    E: for<'a> Fn(&'a Player, &'a C) -> ExtractResult<V> + Send + Sync + 'static,
     V: Eq + Hash + 'static,
 {
     min_required: usize,
@@ -141,12 +150,17 @@ where
 impl<Player, State, Trigger, V, C, DC, E> Evaluator<Player, State, Trigger>
     for DistinctValuesEvaluator<Player, State, Trigger, V, C, DC, E>
 where
-    DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-    E: Fn(&Player, &C) -> ExtractResult<V> + Send + Sync + 'static,
+    DC: for<'a> Fn(&'a AchievementContext<Player, State, Trigger>) -> DerivedCtx<'a, C>
+        + Send
+        + Sync
+        + 'static,
+    E: for<'a> Fn(&'a Player, &'a C) -> ExtractResult<V> + Send + Sync + 'static,
     V: Eq + Hash + 'static,
 {
     fn evaluate(&self, ctx: &AchievementContext<Player, State, Trigger>) -> impl Into<EvalResult> {
         let derived_ctx = (self.derive_ctx)(ctx);
+        let derived_ctx = derived_ctx.as_ref();
+
         let mut seen_values = HashSet::with_capacity(self.min_required);
         let mut player_ids = Vec::with_capacity(self.min_required + 1);
         player_ids.push(ctx.current_bloop.player_id);
@@ -163,7 +177,7 @@ where
 
             player_ids.push(bloop.player_id);
 
-            let extract_result = (self.extract)(&bloop.player(), &derived_ctx);
+            let extract_result = (self.extract)(&bloop.player(), derived_ctx);
 
             match extract_result {
                 ExtractResult::Single(value) => {
@@ -192,8 +206,11 @@ where
 impl<Player, State, Trigger, V, C, DC, E> Debug
     for DistinctValuesEvaluator<Player, State, Trigger, V, C, DC, E>
 where
-    DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-    E: Fn(&Player, &C) -> ExtractResult<V> + Send + Sync + 'static,
+    DC: for<'a> Fn(&'a AchievementContext<Player, State, Trigger>) -> DerivedCtx<'a, C>
+        + Send
+        + Sync
+        + 'static,
+    E: for<'a> Fn(&'a Player, &'a C) -> ExtractResult<V> + Send + Sync + 'static,
     V: Eq + Hash + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -331,7 +348,7 @@ mod tests {
             .min_required(2)
             .max_window(Duration::from_secs(60))
             .build_with_derived_ctx(
-                |_ctx| vec!["bob", "carol"],
+                |_ctx| DerivedCtx::Owned(vec!["bob", "carol"]),
                 |player: &MockPlayer, allowed: &Vec<&str>| {
                     if allowed.contains(&player.name.as_str()) {
                         ExtractResult::Single(player.name.clone())
