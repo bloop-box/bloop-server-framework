@@ -1,3 +1,10 @@
+## [1.8.2](https://github.com/bloop-box/bloop-server-framework/compare/v1.8.1...v1.8.2) (2025-12-10)
+
+
+### Bug Fixes
+
+* **evaluator:** add Debug annotation to erased builder return values ([ffe3437](https://github.com/bloop-box/bloop-server-framework/commit/ffe34372557f40d8c9c6f2593e92bc1d5cb4a50d))
+
 ## [1.8.1](https://github.com/bloop-box/bloop-server-framework/compare/v1.8.0...v1.8.1) (2025-12-10)
 
 

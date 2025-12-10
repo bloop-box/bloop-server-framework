@@ -1,6 +1,6 @@
 [package]
 name = "bloop-server-framework"
-version = "1.8.1"
+version = "1.8.2"
 edition = "2024"
 authors = ["Ben Scholzen 'DASPRiD' <mail@dasprids.de>"]
 description = "Bloop server framework"
