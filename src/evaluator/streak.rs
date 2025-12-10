@@ -118,16 +118,6 @@ where
     _marker: PhantomData<(Player, State, Trigger)>,
 }
 
-impl<Player, State, Trigger, C, DC, P> StreakEvaluator<Player, State, Trigger, C, DC, P>
-where
-    DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-    P: Fn(&Player, &C) -> bool + Send + Sync + 'static,
-{
-    pub fn builder() -> StreakEvaluatorBuilder<NoValue, NoValue> {
-        StreakEvaluatorBuilder::new()
-    }
-}
-
 impl<Player, State, Trigger, C, DC, P> Evaluator<Player, State, Trigger>
     for StreakEvaluator<Player, State, Trigger, C, DC, P>
 where

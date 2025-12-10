@@ -138,18 +138,6 @@ where
     _marker: PhantomData<(Player, State, Trigger, V)>,
 }
 
-impl<Player, State, Trigger, V, C, DC, E>
-    DistinctValuesEvaluator<Player, State, Trigger, V, C, DC, E>
-where
-    DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-    E: Fn(&Bloop<Player>, &C) -> ExtractResult<V> + Send + Sync + 'static,
-    V: Eq + Hash + 'static,
-{
-    pub fn builder() -> DistinctValuesEvaluatorBuilder<NoValue, NoValue> {
-        DistinctValuesEvaluatorBuilder::new()
-    }
-}
-
 impl<Player, State, Trigger, V, C, DC, E> Evaluator<Player, State, Trigger>
     for DistinctValuesEvaluator<Player, State, Trigger, V, C, DC, E>
 where
