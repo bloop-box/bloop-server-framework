@@ -4,6 +4,7 @@
 
 pub mod achievement;
 pub mod bloop;
+pub mod builder;
 pub mod engine;
 pub mod evaluator;
 pub mod event;

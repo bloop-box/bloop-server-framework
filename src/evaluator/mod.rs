@@ -2,6 +2,7 @@ use crate::achievement::AchievementContext;
 use uuid::Uuid;
 
 pub(crate) mod boxed;
+pub mod distinct_values;
 pub mod min_bloops;
 pub mod registration_number;
 pub mod spelling_bee;
@@ -50,6 +51,16 @@ impl From<Option<Vec<Uuid>>> for EvalResult {
             EvalResult::AwardMultiple(value)
         })
     }
+}
+
+/// Which players receive the award when the evaluation passes.
+#[derive(Debug, Default)]
+pub enum AwardMode {
+    /// Award only the current player
+    #[default]
+    Current,
+    /// Award all players whose bloops were involved in completing the collection.
+    All,
 }
 
 /// Trait for statically typed achievement evaluators.

@@ -2,26 +2,36 @@ use crate::achievement::AchievementContext;
 use crate::bloop::Bloop;
 use crate::builder::{NoValue, Value};
 use crate::evaluator::{AwardMode, EvalResult, Evaluator};
+use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::marker::PhantomData;
 use std::time::Duration;
 
-/// Builder for [`StreakEvaluator`].
+/// Result of extracting zero, one or more values from a bloop.
+#[derive(Debug)]
+pub enum ExtractResult<V> {
+    Single(V),
+    Multiple(Vec<V>),
+    Abort,
+}
+
+/// Builder for [`DistinctValuesEvaluator`].
 #[derive(Debug, Default)]
-pub struct StreakEvaluatorBuilder<R, W> {
+pub struct DistinctValuesEvaluatorBuilder<R, W> {
     min_required: R,
     max_window: W,
     award_mode: AwardMode,
 }
 
-impl StreakEvaluatorBuilder<NoValue, NoValue> {
+impl DistinctValuesEvaluatorBuilder<NoValue, NoValue> {
     pub fn new() -> Self {
         Self::default()
     }
 }
 
-impl<W, R> StreakEvaluatorBuilder<R, W> {
+impl<W, R> DistinctValuesEvaluatorBuilder<R, W> {
     /// Award all involved players instead of just the current player.
     pub fn award_all(self) -> Self {
         Self {
@@ -31,10 +41,13 @@ impl<W, R> StreakEvaluatorBuilder<R, W> {
     }
 }
 
-impl<W> StreakEvaluatorBuilder<NoValue, W> {
-    /// Set the minimum number of matching bloops required to award the achievement.
-    pub fn min_required(self, min_required: usize) -> StreakEvaluatorBuilder<Value<usize>, W> {
-        StreakEvaluatorBuilder {
+impl<W> DistinctValuesEvaluatorBuilder<NoValue, W> {
+    /// Set the minimum number of distinct values required to award the achievement.
+    pub fn min_required(
+        self,
+        min_required: usize,
+    ) -> DistinctValuesEvaluatorBuilder<Value<usize>, W> {
+        DistinctValuesEvaluatorBuilder {
             min_required: Value(min_required),
             max_window: self.max_window,
             award_mode: self.award_mode,
@@ -42,10 +55,13 @@ impl<W> StreakEvaluatorBuilder<NoValue, W> {
     }
 }
 
-impl<R> StreakEvaluatorBuilder<R, NoValue> {
+impl<R> DistinctValuesEvaluatorBuilder<R, NoValue> {
     /// Set the maximum time window in which the bloops must have occurred.
-    pub fn max_window(self, max_window: Duration) -> StreakEvaluatorBuilder<R, Value<Duration>> {
-        StreakEvaluatorBuilder {
+    pub fn max_window(
+        self,
+        max_window: Duration,
+    ) -> DistinctValuesEvaluatorBuilder<R, Value<Duration>> {
+        DistinctValuesEvaluatorBuilder {
             min_required: self.min_required,
             max_window: Value(max_window),
             award_mode: self.award_mode,
@@ -53,27 +69,28 @@ impl<R> StreakEvaluatorBuilder<R, NoValue> {
     }
 }
 
-impl StreakEvaluatorBuilder<Value<usize>, Value<Duration>> {
+impl DistinctValuesEvaluatorBuilder<Value<usize>, Value<Duration>> {
     /// Build the evaluator.
-    pub fn build<Player, State, Trigger, P>(
+    pub fn build<Player, State, Trigger, V, E>(
         self,
-        predicate: P,
+        extract: E,
     ) -> impl Evaluator<Player, State, Trigger>
     where
         Player: 'static,
         State: 'static,
         Trigger: 'static,
-        P: Fn(&Bloop<Player>) -> bool + Send + Sync + 'static,
+        E: Fn(&Bloop<Player>) -> ExtractResult<V> + Send + Sync + 'static,
+        V: Eq + Hash + 'static,
     {
         fn derive_ctx<Player, State, Trigger>(_ctx: &AchievementContext<Player, State, Trigger>) {}
-        let predicate_wrapper = move |bloop: &Bloop<Player>, _: &()| predicate(bloop);
+        let extract_wrapper = move |bloop: &Bloop<Player>, _: &()| extract(bloop);
 
-        StreakEvaluator {
+        DistinctValuesEvaluator {
             min_required: self.min_required.0,
             max_window: self.max_window.0,
             award_mode: self.award_mode,
             derive_ctx,
-            predicate: predicate_wrapper,
+            extract: extract_wrapper,
             _marker: PhantomData,
         }
     }
@@ -82,61 +99,67 @@ impl StreakEvaluatorBuilder<Value<usize>, Value<Duration>> {
     ///
     /// The derived context can be used to initially retrieve values from the
     /// achievement context and have them available in the extractor.
-    pub fn build_with_derived_ctx<Player, State, Trigger, C, DC, P>(
+    pub fn build_with_derived_ctx<Player, State, Trigger, V, C, DC, E>(
         self,
         derive_ctx: DC,
-        predicate: P,
+        extract: E,
     ) -> impl Evaluator<Player, State, Trigger>
     where
         DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-        P: Fn(&Bloop<Player>, &C) -> bool + Send + Sync + 'static,
+        E: Fn(&Bloop<Player>, &C) -> ExtractResult<V> + Send + Sync + 'static,
+        V: Eq + Hash + 'static,
     {
-        StreakEvaluator {
+        DistinctValuesEvaluator {
             min_required: self.min_required.0,
             max_window: self.max_window.0,
             award_mode: self.award_mode,
             derive_ctx,
-            predicate,
+            extract,
             _marker: PhantomData,
         }
     }
 }
 
-/// Evaluator that counts recent bloops matching a predicate.
+/// Evaluator that collects distinct `V` values from recent client bloops.
 ///
 /// This evaluator awards the current or all participating players when the
-/// matching bloops reach the `min_required` count.
-pub struct StreakEvaluator<Player, State, Trigger, C, DC, P>
+/// collected values reach the `min_required` count.
+pub struct DistinctValuesEvaluator<Player, State, Trigger, V, C, DC, E>
 where
     DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-    P: Fn(&Bloop<Player>, &C) -> bool + Send + Sync + 'static,
+    E: Fn(&Bloop<Player>, &C) -> ExtractResult<V> + Send + Sync + 'static,
+    V: Eq + Hash + 'static,
 {
     min_required: usize,
     max_window: Duration,
     award_mode: AwardMode,
     derive_ctx: DC,
-    predicate: P,
-    _marker: PhantomData<(Player, State, Trigger)>,
+    extract: E,
+    _marker: PhantomData<(Player, State, Trigger, V)>,
 }
 
-impl<Player, State, Trigger, C, DC, P> StreakEvaluator<Player, State, Trigger, C, DC, P>
+impl<Player, State, Trigger, V, C, DC, E>
+    DistinctValuesEvaluator<Player, State, Trigger, V, C, DC, E>
 where
     DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-    P: Fn(&Bloop<Player>, &C) -> bool + Send + Sync + 'static,
+    E: Fn(&Bloop<Player>, &C) -> ExtractResult<V> + Send + Sync + 'static,
+    V: Eq + Hash + 'static,
 {
-    pub fn builder() -> StreakEvaluatorBuilder<NoValue, NoValue> {
-        StreakEvaluatorBuilder::new()
+    pub fn builder() -> DistinctValuesEvaluatorBuilder<NoValue, NoValue> {
+        DistinctValuesEvaluatorBuilder::new()
     }
 }
 
-impl<Player, State, Trigger, C, DC, P> Evaluator<Player, State, Trigger>
-    for StreakEvaluator<Player, State, Trigger, C, DC, P>
+impl<Player, State, Trigger, V, C, DC, E> Evaluator<Player, State, Trigger>
+    for DistinctValuesEvaluator<Player, State, Trigger, V, C, DC, E>
 where
     DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-    P: Fn(&Bloop<Player>, &C) -> bool + Send + Sync + 'static,
+    E: Fn(&Bloop<Player>, &C) -> ExtractResult<V> + Send + Sync + 'static,
+    V: Eq + Hash + 'static,
 {
     fn evaluate(&self, ctx: &AchievementContext<Player, State, Trigger>) -> impl Into<EvalResult> {
         let derived_ctx = (self.derive_ctx)(ctx);
+        let mut seen_values = HashSet::with_capacity(self.min_required);
         let mut player_ids = Vec::with_capacity(self.min_required + 1);
         player_ids.push(ctx.current_bloop.player_id);
 
@@ -146,15 +169,28 @@ where
             .take(self.min_required);
 
         for bloop in bloops {
-            println!("{} {}", bloop.player_id, self.min_required);
-            if player_ids.contains(&bloop.player_id) || !(self.predicate)(bloop, &derived_ctx) {
+            if player_ids.contains(&bloop.player_id) {
                 return EvalResult::NoAward;
             }
 
             player_ids.push(bloop.player_id);
+
+            let extract_result = (self.extract)(bloop, &derived_ctx);
+
+            match extract_result {
+                ExtractResult::Single(value) => {
+                    seen_values.insert(value);
+                }
+                ExtractResult::Multiple(values) => seen_values.extend(values),
+                ExtractResult::Abort => return EvalResult::NoAward,
+            };
+
+            if seen_values.len() >= self.min_required {
+                break;
+            }
         }
 
-        if player_ids.len() <= self.min_required {
+        if seen_values.len() < self.min_required {
             return EvalResult::NoAward;
         }
 
@@ -165,16 +201,17 @@ where
     }
 }
 
-impl<Player, State, Trigger, C, DC, P> Debug
-for StreakEvaluator<Player, State, Trigger, C, DC, P>
+impl<Player, State, Trigger, V, C, DC, E> Debug
+for DistinctValuesEvaluator<Player, State, Trigger, V, C, DC, E>
 where
     DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-    P: Fn(&Bloop<Player>, &C) -> bool + Send + Sync + 'static,
+    E: Fn(&Bloop<Player>, &C) -> ExtractResult<V> + Send + Sync + 'static,
+    V: Eq + Hash + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("StreakEvaluator")
+        f.debug_struct("DistinctValuesEvaluator")
             .field("derive_ctx", &"<closure>")
-            .field("predicate", &"<closure>")
+            .field("extract", &"<closure>")
             .field("min_required", &self.min_required)
             .field("max_window", &self.max_window)
             .field("award_mode", &self.award_mode)
@@ -190,6 +227,7 @@ mod tests {
     use crate::test_utils::{MockPlayer, TestCtxBuilder};
     use chrono::{DateTime, Utc};
     use std::time::SystemTime;
+    use std::vec;
 
     fn make_bloop(client_id: &str, name: &str, seconds_ago: u64) -> Bloop<MockPlayer> {
         let now = SystemTime::now() - Duration::from_secs(seconds_ago);
@@ -201,16 +239,17 @@ mod tests {
     }
 
     #[test]
-    fn award_when_required_consecutive_matches_are_met() {
-        let evaluator = StreakEvaluatorBuilder::new()
-            .min_required(2)
+    fn award_when_required_distinct_values_are_met() {
+        let evaluator = DistinctValuesEvaluatorBuilder::new()
+            .min_required(3)
             .max_window(Duration::from_secs(60))
-            .build(|bloop: &Bloop<MockPlayer>| bloop.player().name == "foo");
+            .build(|bloop: &Bloop<MockPlayer>| ExtractResult::Single(bloop.player().name.clone()));
 
-        let current = make_bloop("client1", "foo", 0);
+        let current = make_bloop("client1", "alice", 0);
         let past = vec![
-            make_bloop("client1", "foo", 10),
-            make_bloop("client1", "foo", 20),
+            make_bloop("client1", "bob", 10),
+            make_bloop("client1", "carol", 20),
+            make_bloop("client1", "dave", 30),
         ];
 
         let mut ctx_builder = TestCtxBuilder::new(current).bloops(past);
@@ -221,17 +260,17 @@ mod tests {
 
     #[test]
     fn award_all_mode_returns_all_player_ids() {
-        let evaluator = StreakEvaluatorBuilder::new()
+        let evaluator = DistinctValuesEvaluatorBuilder::new()
             .min_required(3)
             .max_window(Duration::from_secs(60))
             .award_all()
-            .build(|bloop: &Bloop<MockPlayer>| bloop.player().name == "foo");
+            .build(|bloop: &Bloop<MockPlayer>| ExtractResult::Single(bloop.player().name.clone()));
 
-        let current = make_bloop("client1", "foo", 0);
-        let b1 = make_bloop("client1", "foo", 10);
-        let b2 = make_bloop("client1", "foo", 20);
-        let b3 = make_bloop("client1", "foo", 30);
-        let b4 = make_bloop("client1", "foo", 40);
+        let current = make_bloop("client1", "alice", 0);
+        let b1 = make_bloop("client1", "bob", 10);
+        let b2 = make_bloop("client1", "carol", 20);
+        let b3 = make_bloop("client1", "dave", 30);
+        let b4 = make_bloop("client1", "joe", 40);
 
         let expected_ids = vec![current.player_id, b1.player_id, b2.player_id, b3.player_id];
 
@@ -247,14 +286,14 @@ mod tests {
     }
 
     #[test]
-    fn predicate_mismatch_leads_to_no_award() {
-        let evaluator = StreakEvaluatorBuilder::new()
+    fn abort_from_extractor_leads_to_no_award() {
+        let evaluator = DistinctValuesEvaluatorBuilder::new()
             .min_required(1)
             .max_window(Duration::from_secs(60))
-            .build(|_bloop: &Bloop<MockPlayer>| false);
+            .build(|_bloop: &Bloop<MockPlayer>| ExtractResult::<()>::Abort);
 
         let current = make_bloop("client1", "alice", 0);
-        let b1 = make_bloop("client1", "alice", 10);
+        let b1 = make_bloop("client1", "bob", 10);
 
         let mut ctx_builder = TestCtxBuilder::new(current).bloops(vec![b1]);
         let res: EvalResult = evaluator.evaluate(&ctx_builder.build()).into();
@@ -264,15 +303,15 @@ mod tests {
 
     #[test]
     fn duplicate_player_in_recent_bloops_causes_no_award() {
-        let evaluator = StreakEvaluatorBuilder::new()
+        let evaluator = DistinctValuesEvaluatorBuilder::new()
             .min_required(2)
             .max_window(Duration::from_secs(60))
-            .build(|bloop: &Bloop<MockPlayer>| bloop.player().name == "bob");
+            .build(|bloop: &Bloop<MockPlayer>| ExtractResult::Single(bloop.player().name.clone()));
 
         let current = make_bloop("client1", "alice", 0);
 
         let b1 = make_bloop("client1", "bob", 10);
-        let mut b2 = make_bloop("client1", "bob", 20);
+        let mut b2 = make_bloop("client1", "carol", 10);
         b2.player_id = b1.player_id;
 
         let mut ctx_builder = TestCtxBuilder::new(current).bloops(vec![b1, b2]);
@@ -283,34 +322,42 @@ mod tests {
 
     #[test]
     fn ignores_bloops_outside_time_window() {
-        let evaluator = StreakEvaluatorBuilder::new()
+        let evaluator = DistinctValuesEvaluatorBuilder::new()
             .min_required(2)
             .max_window(Duration::from_secs(20))
-            .build(|bloop: &Bloop<MockPlayer>| bloop.player().name == "foo");
+            .build(|bloop: &Bloop<MockPlayer>| ExtractResult::Single(bloop.player().name.clone()));
 
-        let current = make_bloop("client1", "foo", 0);
-        let b1 = make_bloop("client1", "foo", 30);
+        let current = make_bloop("client1", "alice", 0);
+        let b1 = make_bloop("client1", "bob", 10);
+        let b2 = make_bloop("client1", "carol", 30);
 
-        let mut ctx_builder = TestCtxBuilder::new(current).bloops(vec![b1]);
+        let mut ctx_builder = TestCtxBuilder::new(current).bloops(vec![b1, b2]);
         let res: EvalResult = evaluator.evaluate(&ctx_builder.build()).into();
 
         assert_eq!(res, EvalResult::NoAward);
     }
 
     #[test]
-    fn build_with_derived_ctx_supplies_context_to_predicate() {
-        let evaluator = StreakEvaluatorBuilder::new()
-            .min_required(1)
+    fn build_with_derived_ctx_supplies_context_to_extractor() {
+        let evaluator = DistinctValuesEvaluatorBuilder::new()
+            .min_required(2)
             .max_window(Duration::from_secs(60))
             .build_with_derived_ctx(
-                |_ctx| vec!["carol"],
+                |_ctx| vec!["bob", "carol"],
                 |bloop: &Bloop<MockPlayer>, allowed: &Vec<&str>| {
-                    allowed.contains(&bloop.player().name.as_str())
+                    if allowed.contains(&bloop.player().name.as_str()) {
+                        ExtractResult::Single(bloop.player().name.clone())
+                    } else {
+                        ExtractResult::Abort
+                    }
                 },
             );
 
-        let current = make_bloop("client1", "bob", 0);
-        let past = vec![make_bloop("client1", "carol", 10)];
+        let current = make_bloop("client1", "alice", 0);
+        let past = vec![
+            make_bloop("client1", "bob", 10),
+            make_bloop("client1", "carol", 20),
+        ];
 
         let mut ctx_builder = TestCtxBuilder::new(current).bloops(past);
         let res: EvalResult = evaluator.evaluate(&ctx_builder.build()).into();
