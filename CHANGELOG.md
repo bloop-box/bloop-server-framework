@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/bloop-box/bloop-server-framework/compare/v1.7.0...v1.8.0) (2025-12-10)
+
+
+### Features
+
+* **evaluator:** rewrite streak evaluator and introduce distinct values evaluator ([e62cff3](https://github.com/bloop-box/bloop-server-framework/commit/e62cff375653151e3afb113c1f80f1decb14e70c))
+
 # [1.7.0](https://github.com/bloop-box/bloop-server-framework/compare/v1.6.1...v1.7.0) (2025-12-09)
 
 
