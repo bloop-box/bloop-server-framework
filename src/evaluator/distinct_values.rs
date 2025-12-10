@@ -202,7 +202,7 @@ where
 }
 
 impl<Player, State, Trigger, V, C, DC, E> Debug
-for DistinctValuesEvaluator<Player, State, Trigger, V, C, DC, E>
+    for DistinctValuesEvaluator<Player, State, Trigger, V, C, DC, E>
 where
     DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
     E: Fn(&Bloop<Player>, &C) -> ExtractResult<V> + Send + Sync + 'static,

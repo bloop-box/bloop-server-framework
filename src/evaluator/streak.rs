@@ -165,8 +165,7 @@ where
     }
 }
 
-impl<Player, State, Trigger, C, DC, P> Debug
-for StreakEvaluator<Player, State, Trigger, C, DC, P>
+impl<Player, State, Trigger, C, DC, P> Debug for StreakEvaluator<Player, State, Trigger, C, DC, P>
 where
     DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
     P: Fn(&Bloop<Player>, &C) -> bool + Send + Sync + 'static,

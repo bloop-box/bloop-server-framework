@@ -1,7 +1,7 @@
 use crate::achievement::AchievementContext;
 use crate::bloop::Bloop;
-use crate::evaluator::streak::StreakEvaluatorBuilder;
 use crate::evaluator::Evaluator;
+use crate::evaluator::streak::StreakEvaluatorBuilder;
 use cached::proc_macro::cached;
 use num_integer::Roots;
 use std::sync::Arc;
@@ -65,12 +65,7 @@ fn internal_is_fibonacci(number: usize) -> bool {
 
 /// Builds a [`crate::evaluator::streak::StreakEvaluator`] that matches
 /// registration numbers against a predicated.
-pub fn build_predicate_evaluator<
-    Player,
-    State,
-    Trigger,
-    F,
->(
+pub fn build_predicate_evaluator<Player, State, Trigger, F>(
     predicate: F,
     min_required: usize,
     max_window: Duration,
@@ -89,13 +84,7 @@ where
 
 /// Builds a [`crate::evaluator::streak::StreakEvaluator`] that matches
 /// registration number projections against the project of the current player.
-pub fn build_projection_match_evaluator<
-    Player,
-    State,
-    Trigger,
-    F,
-    V,
->(
+pub fn build_projection_match_evaluator<Player, State, Trigger, F, V>(
     projector: F,
     min_required: usize,
     max_window: Duration,
@@ -110,17 +99,19 @@ where
     StreakEvaluatorBuilder::new()
         .min_required(min_required)
         .max_window(max_window)
-        .build_with_derived_ctx({
-            let projector = projector.clone();
-            move |ctx: &AchievementContext<Player, State, Trigger>| {
-                let number = ctx.current_bloop.player().registration_number();
-                projector(number)
-            }
-        },
-        move |bloop: &Bloop<Player>, reference: &V| {
-            let reg = bloop.player().registration_number();
-            projector(reg) == *reference
-        })
+        .build_with_derived_ctx(
+            {
+                let projector = projector.clone();
+                move |ctx: &AchievementContext<Player, State, Trigger>| {
+                    let number = ctx.current_bloop.player().registration_number();
+                    projector(number)
+                }
+            },
+            move |bloop: &Bloop<Player>, reference: &V| {
+                let reg = bloop.player().registration_number();
+                projector(reg) == *reference
+            },
+        )
 }
 
 /// Calculates the sum of the digits of a number.
