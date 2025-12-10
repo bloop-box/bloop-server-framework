@@ -1,3 +1,10 @@
+## [1.8.4](https://github.com/bloop-box/bloop-server-framework/compare/v1.8.3...v1.8.4) (2025-12-10)
+
+
+### Bug Fixes
+
+* **evaluator:** supply player instead of bloop in distinct value extract function ([02552ea](https://github.com/bloop-box/bloop-server-framework/commit/02552eaf804ce62e9330720851302311b8dc0570))
+
 ## [1.8.3](https://github.com/bloop-box/bloop-server-framework/compare/v1.8.2...v1.8.3) (2025-12-10)
 
 
