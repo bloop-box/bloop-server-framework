@@ -1,9 +1,9 @@
-use std::fmt::Debug;
 use crate::achievement::AchievementContext;
 use crate::evaluator::Evaluator;
 use crate::evaluator::streak::StreakEvaluatorBuilder;
 use cached::proc_macro::cached;
 use num_integer::Roots;
+use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
 
