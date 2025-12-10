@@ -79,11 +79,11 @@ impl DistinctValuesEvaluatorBuilder<Value<usize>, Value<Duration>> {
         Player: 'static,
         State: 'static,
         Trigger: 'static,
-        E: Fn(&Bloop<Player>) -> ExtractResult<V> + Send + Sync + 'static,
+        E: Fn(&Player) -> ExtractResult<V> + Send + Sync + 'static,
         V: Eq + Hash + 'static,
     {
         fn derive_ctx<Player, State, Trigger>(_ctx: &AchievementContext<Player, State, Trigger>) {}
-        let extract_wrapper = move |bloop: &Bloop<Player>, _: &()| extract(bloop);
+        let extract_wrapper = move |bloop: &Player, _: &()| extract(bloop);
 
         DistinctValuesEvaluator {
             min_required: self.min_required.0,
@@ -106,7 +106,7 @@ impl DistinctValuesEvaluatorBuilder<Value<usize>, Value<Duration>> {
     ) -> impl Evaluator<Player, State, Trigger> + Debug
     where
         DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-        E: Fn(&Bloop<Player>, &C) -> ExtractResult<V> + Send + Sync + 'static,
+        E: Fn(&Player, &C) -> ExtractResult<V> + Send + Sync + 'static,
         V: Eq + Hash + 'static,
     {
         DistinctValuesEvaluator {
@@ -127,7 +127,7 @@ impl DistinctValuesEvaluatorBuilder<Value<usize>, Value<Duration>> {
 pub struct DistinctValuesEvaluator<Player, State, Trigger, V, C, DC, E>
 where
     DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-    E: Fn(&Bloop<Player>, &C) -> ExtractResult<V> + Send + Sync + 'static,
+    E: Fn(&Player, &C) -> ExtractResult<V> + Send + Sync + 'static,
     V: Eq + Hash + 'static,
 {
     min_required: usize,
@@ -142,7 +142,7 @@ impl<Player, State, Trigger, V, C, DC, E> Evaluator<Player, State, Trigger>
     for DistinctValuesEvaluator<Player, State, Trigger, V, C, DC, E>
 where
     DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-    E: Fn(&Bloop<Player>, &C) -> ExtractResult<V> + Send + Sync + 'static,
+    E: Fn(&Player, &C) -> ExtractResult<V> + Send + Sync + 'static,
     V: Eq + Hash + 'static,
 {
     fn evaluate(&self, ctx: &AchievementContext<Player, State, Trigger>) -> impl Into<EvalResult> {
@@ -163,7 +163,7 @@ where
 
             player_ids.push(bloop.player_id);
 
-            let extract_result = (self.extract)(bloop, &derived_ctx);
+            let extract_result = (self.extract)(&bloop.player(), &derived_ctx);
 
             match extract_result {
                 ExtractResult::Single(value) => {
@@ -193,7 +193,7 @@ impl<Player, State, Trigger, V, C, DC, E> Debug
     for DistinctValuesEvaluator<Player, State, Trigger, V, C, DC, E>
 where
     DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
-    E: Fn(&Bloop<Player>, &C) -> ExtractResult<V> + Send + Sync + 'static,
+    E: Fn(&Player, &C) -> ExtractResult<V> + Send + Sync + 'static,
     V: Eq + Hash + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -231,7 +231,7 @@ mod tests {
         let evaluator = DistinctValuesEvaluatorBuilder::new()
             .min_required(3)
             .max_window(Duration::from_secs(60))
-            .build(|bloop: &Bloop<MockPlayer>| ExtractResult::Single(bloop.player().name.clone()));
+            .build(|player: &MockPlayer| ExtractResult::Single(player.name.clone()));
 
         let current = make_bloop("client1", "alice", 0);
         let past = vec![
@@ -252,7 +252,7 @@ mod tests {
             .min_required(3)
             .max_window(Duration::from_secs(60))
             .award_all()
-            .build(|bloop: &Bloop<MockPlayer>| ExtractResult::Single(bloop.player().name.clone()));
+            .build(|player: &MockPlayer| ExtractResult::Single(player.name.clone()));
 
         let current = make_bloop("client1", "alice", 0);
         let b1 = make_bloop("client1", "bob", 10);
@@ -278,7 +278,7 @@ mod tests {
         let evaluator = DistinctValuesEvaluatorBuilder::new()
             .min_required(1)
             .max_window(Duration::from_secs(60))
-            .build(|_bloop: &Bloop<MockPlayer>| ExtractResult::<()>::Abort);
+            .build(|_player: &MockPlayer| ExtractResult::<()>::Abort);
 
         let current = make_bloop("client1", "alice", 0);
         let b1 = make_bloop("client1", "bob", 10);
@@ -294,7 +294,7 @@ mod tests {
         let evaluator = DistinctValuesEvaluatorBuilder::new()
             .min_required(2)
             .max_window(Duration::from_secs(60))
-            .build(|bloop: &Bloop<MockPlayer>| ExtractResult::Single(bloop.player().name.clone()));
+            .build(|player: &MockPlayer| ExtractResult::Single(player.name.clone()));
 
         let current = make_bloop("client1", "alice", 0);
 
@@ -313,7 +313,7 @@ mod tests {
         let evaluator = DistinctValuesEvaluatorBuilder::new()
             .min_required(2)
             .max_window(Duration::from_secs(20))
-            .build(|bloop: &Bloop<MockPlayer>| ExtractResult::Single(bloop.player().name.clone()));
+            .build(|player: &MockPlayer| ExtractResult::Single(player.name.clone()));
 
         let current = make_bloop("client1", "alice", 0);
         let b1 = make_bloop("client1", "bob", 10);
@@ -332,9 +332,9 @@ mod tests {
             .max_window(Duration::from_secs(60))
             .build_with_derived_ctx(
                 |_ctx| vec!["bob", "carol"],
-                |bloop: &Bloop<MockPlayer>, allowed: &Vec<&str>| {
-                    if allowed.contains(&bloop.player().name.as_str()) {
-                        ExtractResult::Single(bloop.player().name.clone())
+                |player: &MockPlayer, allowed: &Vec<&str>| {
+                    if allowed.contains(&player.name.as_str()) {
+                        ExtractResult::Single(player.name.clone())
                     } else {
                         ExtractResult::Abort
                     }
