@@ -1,3 +1,10 @@
+## [1.8.5](https://github.com/bloop-box/bloop-server-framework/compare/v1.8.4...v1.8.5) (2025-12-10)
+
+
+### Bug Fixes
+
+* **evaluator:** introduce DeriveCtx enum to handle both owned and referenced values ([41e7a2a](https://github.com/bloop-box/bloop-server-framework/commit/41e7a2a0bd11c177e8462557f1cdc35246f828e6))
+
 ## [1.8.4](https://github.com/bloop-box/bloop-server-framework/compare/v1.8.3...v1.8.4) (2025-12-10)
 
 
