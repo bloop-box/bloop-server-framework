@@ -74,7 +74,7 @@ impl DistinctValuesEvaluatorBuilder<Value<usize>, Value<Duration>> {
     pub fn build<Player, State, Trigger, V, E>(
         self,
         extract: E,
-    ) -> impl Evaluator<Player, State, Trigger>
+    ) -> impl Evaluator<Player, State, Trigger> + Debug
     where
         Player: 'static,
         State: 'static,
@@ -103,7 +103,7 @@ impl DistinctValuesEvaluatorBuilder<Value<usize>, Value<Duration>> {
         self,
         derive_ctx: DC,
         extract: E,
-    ) -> impl Evaluator<Player, State, Trigger>
+    ) -> impl Evaluator<Player, State, Trigger> + Debug
     where
         DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
         E: Fn(&Bloop<Player>, &C) -> ExtractResult<V> + Send + Sync + 'static,

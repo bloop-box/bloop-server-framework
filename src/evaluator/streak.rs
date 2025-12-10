@@ -57,7 +57,7 @@ impl StreakEvaluatorBuilder<Value<usize>, Value<Duration>> {
     pub fn build<Player, State, Trigger, P>(
         self,
         predicate: P,
-    ) -> impl Evaluator<Player, State, Trigger>
+    ) -> impl Evaluator<Player, State, Trigger> + Debug
     where
         Player: 'static,
         State: 'static,
@@ -85,7 +85,7 @@ impl StreakEvaluatorBuilder<Value<usize>, Value<Duration>> {
         self,
         derive_ctx: DC,
         predicate: P,
-    ) -> impl Evaluator<Player, State, Trigger>
+    ) -> impl Evaluator<Player, State, Trigger> + Debug
     where
         DC: Fn(&AchievementContext<Player, State, Trigger>) -> C + Send + Sync + 'static,
         P: Fn(&Player, &C) -> bool + Send + Sync + 'static,

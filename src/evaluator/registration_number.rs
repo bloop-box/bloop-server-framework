@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use crate::achievement::AchievementContext;
 use crate::evaluator::Evaluator;
 use crate::evaluator::streak::StreakEvaluatorBuilder;
@@ -68,7 +69,7 @@ pub fn build_predicate_evaluator<Player, State, Trigger, F>(
     predicate: F,
     min_required: usize,
     max_window: Duration,
-) -> impl Evaluator<Player, State, Trigger>
+) -> impl Evaluator<Player, State, Trigger> + Debug
 where
     Player: RegistrationNumberProvider + Send + Sync + 'static,
     State: 'static,
@@ -87,7 +88,7 @@ pub fn build_projection_match_evaluator<Player, State, Trigger, F, V>(
     projector: F,
     min_required: usize,
     max_window: Duration,
-) -> impl Evaluator<Player, State, Trigger>
+) -> impl Evaluator<Player, State, Trigger> + Debug
 where
     Player: RegistrationNumberProvider,
     F: Fn(usize) -> V + Send + Sync + 'static,
