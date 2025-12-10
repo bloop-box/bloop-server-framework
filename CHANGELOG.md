@@ -1,3 +1,10 @@
+## [1.8.3](https://github.com/bloop-box/bloop-server-framework/compare/v1.8.2...v1.8.3) (2025-12-10)
+
+
+### Bug Fixes
+
+* **evaluator:** rwemove unusable builder() methods ([c167c87](https://github.com/bloop-box/bloop-server-framework/commit/c167c8734683fdec3d522a5590d0dbbac3706c7f))
+
 ## [1.8.2](https://github.com/bloop-box/bloop-server-framework/compare/v1.8.1...v1.8.2) (2025-12-10)
 
 

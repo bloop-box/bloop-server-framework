@@ -183,7 +183,7 @@ dependencies = [
 
 [[package]]
 name = "bloop-server-framework"
-version = "1.8.2"
+version = "1.8.3"
 dependencies = [
  "anyhow",
  "argon2",
