@@ -1,3 +1,10 @@
+## [1.8.1](https://github.com/bloop-box/bloop-server-framework/compare/v1.8.0...v1.8.1) (2025-12-10)
+
+
+### Bug Fixes
+
+* **evaluator:** consume player in streak evaluator instead of bloop ([2639f9c](https://github.com/bloop-box/bloop-server-framework/commit/2639f9c5a928a02f2653a590617ce7e7e6b5af52))
+
 # [1.8.0](https://github.com/bloop-box/bloop-server-framework/compare/v1.7.0...v1.8.0) (2025-12-10)
 
 
