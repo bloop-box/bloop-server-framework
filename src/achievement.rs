@@ -142,23 +142,25 @@ impl From<Option<PathBuf>> for AudioSource {
 }
 
 impl AudioSource {
-    pub fn resolve(&self, base_path: &Path) -> &Option<AudioFile> {
-        self.resolved.get_or_init(|| {
-            let relative = self.relative.as_ref()?;
+    pub fn resolve(&self, base_path: &Path) -> Option<&AudioFile> {
+        self.resolved
+            .get_or_init(|| {
+                let relative = self.relative.as_ref()?;
 
-            let path = base_path.join(relative);
-            let Ok(file_content) = fs::read(path.clone()) else {
-                warn!("Audio file missing: {:?}", path);
-                return None;
-            };
+                let path = base_path.join(relative);
+                let Ok(file_content) = fs::read(path.clone()) else {
+                    warn!("Audio file missing: {:?}", path);
+                    return None;
+                };
 
-            let digest = md5::compute(file_content);
+                let digest = md5::compute(file_content);
 
-            Some(AudioFile {
-                path,
-                hash: digest.into(),
+                Some(AudioFile {
+                    path,
+                    hash: digest.into(),
+                })
             })
-        })
+            .as_ref()
     }
 }
 
