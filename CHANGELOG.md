@@ -1,3 +1,10 @@
+## [1.9.1](https://github.com/bloop-box/bloop-server-framework/compare/v1.9.0...v1.9.1) (2025-12-11)
+
+
+### Bug Fixes
+
+* **achievement:** return resolved audio file as reference inside owned option ([dce5ce2](https://github.com/bloop-box/bloop-server-framework/commit/dce5ce208980065bba8a9ce159deae16251934a0))
+
 # [1.9.0](https://github.com/bloop-box/bloop-server-framework/compare/v1.8.5...v1.9.0) (2025-12-11)
 
 
