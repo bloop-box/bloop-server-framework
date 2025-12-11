@@ -128,7 +128,7 @@ pub struct AudioFile {
 
 #[derive(Debug)]
 pub struct AudioSource {
-    relative: Option<PathBuf>,
+    pub relative: Option<PathBuf>,
     resolved: OnceLock<Option<AudioFile>>,
 }
 
