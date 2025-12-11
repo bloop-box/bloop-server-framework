@@ -1,3 +1,10 @@
+# [1.9.0](https://github.com/bloop-box/bloop-server-framework/compare/v1.8.5...v1.9.0) (2025-12-11)
+
+
+### Features
+
+* **achievement:** make relative path on audio source public ([6049918](https://github.com/bloop-box/bloop-server-framework/commit/6049918bc918683fab7c35df3f6cd15264a13631))
+
 ## [1.8.5](https://github.com/bloop-box/bloop-server-framework/compare/v1.8.4...v1.8.5) (2025-12-10)
 
 
