@@ -1,3 +1,10 @@
+## [1.9.2](https://github.com/bloop-box/bloop-server-framework/compare/v1.9.1...v1.9.2) (2025-12-12)
+
+
+### Bug Fixes
+
+* **Cargo.toml:** enable all features for docs.rs ([15a67a4](https://github.com/bloop-box/bloop-server-framework/commit/15a67a4429218c3c6a2735a2efb62bc21a1cacf7))
+
 ## [1.9.1](https://github.com/bloop-box/bloop-server-framework/compare/v1.9.0...v1.9.1) (2025-12-11)
 
 
