@@ -1,3 +1,10 @@
+# [1.10.0](https://github.com/bloop-box/bloop-server-framework/compare/v1.9.2...v1.10.0) (2025-12-12)
+
+
+### Features
+
+* **engine:** add humantime_serde to threshold Duration ([8d372dc](https://github.com/bloop-box/bloop-server-framework/commit/8d372dc8903569202071e3265186e6b41351c966))
+
 ## [1.9.2](https://github.com/bloop-box/bloop-server-framework/compare/v1.9.1...v1.9.2) (2025-12-12)
 
 
