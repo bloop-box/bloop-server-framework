@@ -31,6 +31,7 @@ pub enum EngineRequest {
 #[derive(Debug, Deserialize)]
 pub struct Throttle {
     max_bloops: usize,
+    #[serde(with = "humantime_serde")]
     threshold: Duration,
 }
 
