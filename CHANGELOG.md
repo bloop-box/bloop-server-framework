@@ -1,3 +1,10 @@
+## [1.10.1](https://github.com/bloop-box/bloop-server-framework/compare/v1.10.0...v1.10.1) (2025-12-12)
+
+
+### Bug Fixes
+
+* **network:** make CustomRequestMessage props public ([312fc78](https://github.com/bloop-box/bloop-server-framework/commit/312fc78d162713bfa7ee537d5dc380bc5b6be297))
+
 # [1.10.0](https://github.com/bloop-box/bloop-server-framework/compare/v1.9.2...v1.10.0) (2025-12-12)
 
 
