@@ -62,9 +62,9 @@ pub type Result<T> = result::Result<T, Error>;
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct CustomRequestMessage {
-    client_id: String,
-    message: Message,
-    response: oneshot::Sender<Option<Message>>,
+    pub client_id: String,
+    pub message: Message,
+    pub response: oneshot::Sender<Option<Message>>,
 }
 
 /// A TLS-secured TCP server that accepts client connections, authenticates
