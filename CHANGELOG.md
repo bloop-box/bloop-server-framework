@@ -1,3 +1,10 @@
+## [1.10.2](https://github.com/bloop-box/bloop-server-framework/compare/v1.10.1...v1.10.2) (2025-12-12)
+
+
+### Bug Fixes
+
+* **message:** make Message attributes public ([06a740e](https://github.com/bloop-box/bloop-server-framework/commit/06a740ec3eaa181fd9e5a5e29f0943d87a3fb706))
+
 ## [1.10.1](https://github.com/bloop-box/bloop-server-framework/compare/v1.10.0...v1.10.1) (2025-12-12)
 
 
