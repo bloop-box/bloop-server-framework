@@ -66,7 +66,7 @@ impl DataHash {
 
     /// Converts the [`DataHash`] into a 17-byte array tagged with
     /// length prefix (16).
-    fn into_tagged_bytes(self) -> [u8; 17] {
+    pub fn into_tagged_bytes(self) -> [u8; 17] {
         let mut bytes = [0u8; 17];
         bytes[0] = 16;
         bytes[1..].copy_from_slice(self.0.as_slice());
