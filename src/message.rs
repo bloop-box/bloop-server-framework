@@ -253,7 +253,7 @@ impl AchievementRecord {
     ///
     /// - 16 bytes for UUID
     /// - 17 bytes tagged DataHash if present, or a zero byte if absent.
-    fn into_bytes(self) -> Vec<u8> {
+    pub fn into_bytes(self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(16 + 17);
         bytes.extend_from_slice(&self.id.into_bytes());
 
