@@ -1,3 +1,10 @@
+## [1.10.3](https://github.com/bloop-box/bloop-server-framework/compare/v1.10.2...v1.10.3) (2025-12-12)
+
+
+### Bug Fixes
+
+* **message:** make into_tagged_bytes public ([3efa95c](https://github.com/bloop-box/bloop-server-framework/commit/3efa95c0ac6ca12e7508c53ca3d11d8e014e7d5c))
+
 ## [1.10.2](https://github.com/bloop-box/bloop-server-framework/compare/v1.10.1...v1.10.2) (2025-12-12)
 
 
