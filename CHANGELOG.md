@@ -1,3 +1,10 @@
+## [1.10.4](https://github.com/bloop-box/bloop-server-framework/compare/v1.10.3...v1.10.4) (2025-12-12)
+
+
+### Bug Fixes
+
+* **message:** make into_bytes for AchievementRecord public ([1488052](https://github.com/bloop-box/bloop-server-framework/commit/14880522c88d73cb5a2f80d6ca511291500f5c0e))
+
 ## [1.10.3](https://github.com/bloop-box/bloop-server-framework/compare/v1.10.2...v1.10.3) (2025-12-12)
 
 
