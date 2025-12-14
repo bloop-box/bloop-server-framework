@@ -139,7 +139,6 @@ impl<Player, Metadata, Trigger> Evaluator<Player, Metadata, Trigger> for Spellin
 mod tests {
     use super::*;
     use crate::bloop::Bloop;
-    use crate::char_map;
     use crate::evaluator::{EvalResult, Evaluator};
     use crate::test_utils::{MockPlayer, TestCtxBuilder};
     use chrono::Utc;

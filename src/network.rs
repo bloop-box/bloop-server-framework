@@ -352,6 +352,7 @@ pub type BuilderResult<T> = result::Result<T, BuilderError>;
 /// let (engine_tx, engine_rx) = mpsc::channel(512);
 /// let (event_tx, event_rx) = broadcast::channel(512);
 ///
+/// # let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 /// let builder = NetworkListenerBuilder::new()
 ///     .address("127.0.0.1:12345")
 ///     .clients(Arc::new(RwLock::new(Default::default())))
@@ -678,6 +679,7 @@ mod tests {
         fs::write(&cert_path, cert_data).unwrap();
         fs::write(&key_path, key_data).unwrap();
 
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
         let builder = NetworkListenerBuilder::new()
             .address("127.0.0.1:12345")
             .cert_path(&cert_path)
