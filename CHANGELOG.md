@@ -1,3 +1,10 @@
+## [1.10.5](https://github.com/bloop-box/bloop-server-framework/compare/v1.10.4...v1.10.5) (2025-12-14)
+
+
+### Bug Fixes
+
+* use rustls feature for teloxide ([8150f59](https://github.com/bloop-box/bloop-server-framework/commit/8150f59c7bc036a8e75eea596190e93f158ea46f))
+
 ## [1.10.4](https://github.com/bloop-box/bloop-server-framework/compare/v1.10.3...v1.10.4) (2025-12-12)
 
 
