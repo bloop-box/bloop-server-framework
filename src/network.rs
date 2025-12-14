@@ -7,6 +7,7 @@ use crate::engine::EngineRequest;
 use crate::event::Event;
 use crate::message::{Capabilities, ClientMessage, ErrorResponse, Message, ServerMessage};
 use argon2::{Argon2, PasswordVerifier, password_hash::PasswordHashString};
+use rustls::crypto::CryptoProvider;
 use rustls::ServerConfig;
 use rustls::pki_types::{
     CertificateDer, PrivateKeyDer,
@@ -464,6 +465,13 @@ impl NetworkListenerBuilder {
             path: key_path,
             source: err,
         })?;
+
+        // Install the aws_lc_rs crypto provider as the process default.
+        // When multiple crypto providers are available (e.g., through transitive dependencies
+        // like teloxide -> reqwest -> hyper-rustls which may enable ring), rustls requires
+        // explicit selection of which provider to use. We choose aws_lc_rs as it's the
+        // default provider in rustls and is the only one directly enabled by this crate.
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
         let config = ServerConfig::builder()
             .with_no_client_auth()
