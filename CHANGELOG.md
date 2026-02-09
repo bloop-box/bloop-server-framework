@@ -1,3 +1,10 @@
+## [1.10.6](https://github.com/bloop-box/bloop-server-framework/compare/v1.10.5...v1.10.6) (2026-02-09)
+
+
+### Bug Fixes
+
+* **achievement:** apply camelCase rename to achievement award batches ([b283678](https://github.com/bloop-box/bloop-server-framework/commit/b2836784b06b19f174cfd1a4b5ffffde86316069))
+
 ## [1.10.5](https://github.com/bloop-box/bloop-server-framework/compare/v1.10.4...v1.10.5) (2025-12-14)
 
 
