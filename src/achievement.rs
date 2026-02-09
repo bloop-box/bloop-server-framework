@@ -201,6 +201,7 @@ impl<Metadata, Player, State, Trigger> Achievement<Metadata, Player, State, Trig
 
 /// Represents the achievements awarded to a single player at a specific time.
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PlayerAchievementAwards {
     /// The unique ID of the player who received the achievements.
     pub player_id: Uuid,
@@ -210,6 +211,7 @@ pub struct PlayerAchievementAwards {
 
 /// Represents a batch of achievements awarded to multiple players at a given timestamp.
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AchievementAwardBatch {
     /// The timestamp when the achievements were awarded.
     pub awarded_at: DateTime<Utc>,
