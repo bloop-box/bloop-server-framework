@@ -656,7 +656,10 @@ mod tests {
         stats.record_bloop(make_bloop("c", now - Duration::minutes(2)), &tz);
 
         let count = stats.count_last_minutes(now, 3);
-        assert_eq!(count, 3, "should count all 3 minutes even when wrapping past midnight");
+        assert_eq!(
+            count, 3,
+            "should count all 3 minutes even when wrapping past midnight"
+        );
     }
 
     #[test]
@@ -680,7 +683,6 @@ mod tests {
         assert_eq!(stats.bloops_per_day.get(&local_date), Some(&1));
         assert_eq!(stats.bloops_per_day.get(&utc_date), None);
     }
-
 
     fn dummy_stats() -> HashMap<String, ClientStats> {
         let mut map = HashMap::new();
