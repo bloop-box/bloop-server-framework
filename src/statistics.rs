@@ -169,22 +169,24 @@ impl ClientStats {
     }
 
     fn record_bloop(&mut self, bloop: ProcessedBloop, tz: &Tz) {
-        let date = bloop.recorded_at.date_naive();
+        let utc_date = bloop.recorded_at.date_naive();
         let time = bloop.recorded_at.time();
         let idx = (time.hour() * 60 + time.minute()) as usize;
 
-        if self.per_minute_dates[idx] != date {
-            self.per_minute_dates[idx] = date;
+        if self.per_minute_dates[idx] != utc_date {
+            self.per_minute_dates[idx] = utc_date;
             self.per_minute_bloops[idx] = 1;
         } else {
             self.per_minute_bloops[idx] = self.per_minute_bloops[idx].saturating_add(1);
         }
 
-        let local_hour = bloop.recorded_at.with_timezone(tz).hour() as usize;
+        let local_dt = bloop.recorded_at.with_timezone(tz);
+        let local_hour = local_dt.hour() as usize;
+        let local_date = local_dt.date_naive();
 
         self.total_bloops += 1;
         self.bloops_per_hour[local_hour] += 1;
-        *self.bloops_per_day.entry(date).or_insert(0) += 1;
+        *self.bloops_per_day.entry(local_date).or_insert(0) += 1;
     }
 
     fn count_last_minutes(&self, now: DateTime<Utc>, minutes: usize) -> u32 {
@@ -192,7 +194,7 @@ impl ClientStats {
         let mut total = 0;
 
         for i in 0..minutes {
-            let idx = now_minute.wrapping_sub(i) % MINUTES_IN_DAY;
+            let idx = (now_minute + MINUTES_IN_DAY - i) % MINUTES_IN_DAY;
             let expected_date = (now - chrono::Duration::minutes(i as i64)).date_naive();
 
             if self.per_minute_dates[idx] == expected_date {
@@ -637,6 +639,49 @@ mod tests {
         assert!(client_stats.bloops_per_day.contains_key(&now.date_naive()));
 
         assert_eq!(snapshot.global.total_bloops, 1);
+    }
+
+    #[test]
+    fn count_last_minutes_across_midnight() {
+        // now_minute = 1 (00:01 UTC), so counting back 3 minutes wraps across midnight
+        let tz = UTC;
+        let mut stats = ClientStats::new();
+        let now = Utc.with_ymd_and_hms(2025, 7, 6, 0, 1, 0).unwrap();
+
+        // 00:01 today
+        stats.record_bloop(make_bloop("c", now), &tz);
+        // 00:00 today
+        stats.record_bloop(make_bloop("c", now - Duration::minutes(1)), &tz);
+        // 23:59 yesterday
+        stats.record_bloop(make_bloop("c", now - Duration::minutes(2)), &tz);
+
+        let count = stats.count_last_minutes(now, 3);
+        assert_eq!(
+            count, 3,
+            "should count all 3 minutes even when wrapping past midnight"
+        );
+    }
+
+    #[test]
+    fn record_bloop_uses_local_timezone_for_bloops_per_day() {
+        // Use a timezone that is ahead of UTC (e.g. UTC+2) so that a bloop
+        // recorded at 23:30 UTC on day D is actually local day D+1.
+        let tz = chrono_tz::Europe::Helsinki; // UTC+2 / UTC+3
+        let mut stats = ClientStats::new();
+
+        // 2025-07-05 23:30 UTC == 2025-07-06 01:30 Helsinki (EEST, UTC+3)
+        let recorded_at = Utc.with_ymd_and_hms(2025, 7, 5, 23, 30, 0).unwrap();
+        let bloop = make_bloop("client1", recorded_at);
+        stats.record_bloop(bloop, &tz);
+
+        let local_date = recorded_at.with_timezone(&tz).date_naive();
+        let utc_date = recorded_at.date_naive();
+
+        // The local date must differ from the UTC date for this test to be meaningful
+        assert_ne!(local_date, utc_date);
+        // bloops_per_day must be keyed by local date, not UTC date
+        assert_eq!(stats.bloops_per_day.get(&local_date), Some(&1));
+        assert_eq!(stats.bloops_per_day.get(&utc_date), None);
     }
 
     fn dummy_stats() -> HashMap<String, ClientStats> {
