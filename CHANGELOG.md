@@ -1,3 +1,10 @@
+## [1.10.7](https://github.com/bloop-box/bloop-server-framework/compare/v1.10.6...v1.10.7) (2026-02-19)
+
+
+### Bug Fixes
+
+* fix count_last_minutes midnight wrapping and bloops_per_day timezone ([#4](https://github.com/bloop-box/bloop-server-framework/issues/4)) ([da4cd06](https://github.com/bloop-box/bloop-server-framework/commit/da4cd063905be3a371eb57dd1a0f6b5d6ace79a1))
+
 ## [1.10.6](https://github.com/bloop-box/bloop-server-framework/compare/v1.10.5...v1.10.6) (2026-02-09)
 
 
