@@ -1,3 +1,10 @@
+## [1.10.8](https://github.com/bloop-box/bloop-server-framework/compare/v1.10.7...v1.10.8) (2026-02-21)
+
+
+### Bug Fixes
+
+* **evaluator:** fix off-by-one in SpellingBeeEvaluator ([#5](https://github.com/bloop-box/bloop-server-framework/issues/5)) ([fd2f10d](https://github.com/bloop-box/bloop-server-framework/commit/fd2f10d3002c0254cf3d5e7052ce5c8c3e1382a7))
+
 ## [1.10.7](https://github.com/bloop-box/bloop-server-framework/compare/v1.10.6...v1.10.7) (2026-02-19)
 
 
