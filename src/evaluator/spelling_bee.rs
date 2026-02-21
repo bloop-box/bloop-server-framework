@@ -128,7 +128,7 @@ impl<Player, Metadata, Trigger> Evaluator<Player, Metadata, Trigger> for Spellin
             .global_bloops()
             .filter(ctx.filter_within_window(self.max_time))
             .filter(ctx.filter_current_player())
-            .take(self.client_ids.len())
+            .take(self.client_ids.len() - 1)
             .map(|bloop| &bloop.client_id);
 
         last_client_ids.eq(self.client_ids.iter().skip(1))
@@ -173,6 +173,32 @@ mod tests {
 
         let evaluator =
             SpellingBeeEvaluator::new(word, &client_map, Duration::from_secs(15)).unwrap();
+        assert_eq!(
+            evaluator.evaluate(&builder.build()).into(),
+            EvalResult::AwardSelf
+        );
+    }
+
+    #[test]
+    fn matches_correct_sequence_with_prior_bloops() {
+        let word = "hey";
+        let client_map = char_map! {
+            'h' => "client1",
+            'e' => "client2",
+            'y' => "client3"
+        };
+
+        let (player, _) = MockPlayer::builder().build();
+        let bloops = vec![
+            make_bloop(&player, "client1", 20),
+            make_bloop(&player, "client2", 10),
+            // Extra older bloop from a previous unrelated sequence
+            make_bloop(&player, "client3", 30),
+        ];
+        let mut builder = TestCtxBuilder::new(make_bloop(&player, "client3", 0)).bloops(bloops);
+
+        let evaluator =
+            SpellingBeeEvaluator::new(word, &client_map, Duration::from_secs(25)).unwrap();
         assert_eq!(
             evaluator.evaluate(&builder.build()).into(),
             EvalResult::AwardSelf
