@@ -182,13 +182,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "bloop-protocol"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f1b91d36da10bca0ae9b40d839e2f6e40d01d6123d21924a109e33619ce342d"
+dependencies = [
+ "bitmask-enum",
+ "bloop-protocol-derive",
+ "hex",
+ "md5",
+ "serde",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "bloop-protocol-derive"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "424e63f6d38836a2abb91e8629f1577436160e61474a599c608a635a36613178"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.111",
+]
+
+[[package]]
 name = "bloop-server-framework"
 version = "1.10.8"
 dependencies = [
  "anyhow",
  "argon2",
- "bitmask-enum",
- "byteorder",
+ "bloop-protocol",
  "bytes",
  "cached",
  "chrono",
@@ -240,12 +266,6 @@ dependencies = [
  "quote",
  "syn 2.0.111",
 ]
-
-[[package]]
-name = "byteorder"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "bytes"
@@ -1484,7 +1504,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]

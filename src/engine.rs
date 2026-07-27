@@ -1,7 +1,10 @@
 use crate::achievement::{Achievement, AchievementAwardBatch, AchievementContext, AwardedTracker};
 use crate::bloop::{Bloop, BloopProvider, ProcessedBloop, bloops_since};
 use crate::event::Event;
-use crate::message::{AchievementRecord, DataHash, ErrorResponse, ServerMessage};
+use crate::message::{
+    AchievementRecord, AudioData, BloopAccepted, DataHash, ErrorResponse, PreloadMatch,
+    PreloadMismatch, ServerMessage,
+};
 use crate::nfc_uid::NfcUid;
 use crate::player::{PlayerInfo, PlayerMutator, PlayerRegistry};
 use crate::trigger::TriggerRegistry;
@@ -110,9 +113,12 @@ where
             .trigger_registry
             .try_activate_trigger(nfc_uid, &client_id)
         {
-            let _ = response.send(ServerMessage::BloopAccepted {
-                achievements: Vec::new(),
-            });
+            let _ = response.send(
+                BloopAccepted {
+                    achievements: Vec::new(),
+                }
+                .into(),
+            );
             return;
         }
 
@@ -166,22 +172,25 @@ where
         self.bloop_provider.add(Arc::new(bloop));
         let _ = self.event_tx.send(Event::BloopProcessed(processed_bloop));
 
-        let _ = response.send(ServerMessage::BloopAccepted {
-            achievements: achievement_ids
-                .into_iter()
-                .map(|id| AchievementRecord {
-                    id,
-                    audio_file_hash: self
-                        .achievements
-                        .get(&id)
-                        .unwrap()
-                        .audio_file
-                        .resolve(&self.audio_base_path)
-                        .as_ref()
-                        .map(|file| file.hash),
-                })
-                .collect(),
-        });
+        let _ = response.send(
+            BloopAccepted {
+                achievements: achievement_ids
+                    .into_iter()
+                    .map(|id| AchievementRecord {
+                        id,
+                        audio_hash: self
+                            .achievements
+                            .get(&id)
+                            .unwrap()
+                            .audio_file
+                            .resolve(&self.audio_base_path)
+                            .as_ref()
+                            .map(|file| file.hash.clone()),
+                    })
+                    .collect(),
+            }
+            .into(),
+        );
     }
 
     async fn evaluate_achievements(&mut self, bloop: &Bloop<Player>) -> AwardedTracker {
@@ -299,7 +308,7 @@ where
                 return;
             }
 
-            let _ = response.send(ServerMessage::AudioData { data });
+            let _ = response.send(AudioData { data }.into());
         });
     }
 
@@ -312,25 +321,28 @@ where
         if let Some(manifest_hash) = manifest_hash
             && manifest_hash == self.audio_manifest_hash
         {
-            let _ = response.send(ServerMessage::PreloadMatch);
+            let _ = response.send(PreloadMatch.into());
             return;
         }
 
-        let _ = response.send(ServerMessage::PreloadMismatch {
-            audio_manifest_hash: self.audio_manifest_hash,
-            achievements: self
-                .achievements
-                .values()
-                .map(|achievement| AchievementRecord {
-                    id: achievement.id,
-                    audio_file_hash: achievement
-                        .audio_file
-                        .resolve(&self.audio_base_path)
-                        .as_ref()
-                        .map(|file| file.hash),
-                })
-                .collect(),
-        });
+        let _ = response.send(
+            PreloadMismatch {
+                audio_manifest_hash: self.audio_manifest_hash.clone(),
+                achievements: self
+                    .achievements
+                    .values()
+                    .map(|achievement| AchievementRecord {
+                        id: achievement.id,
+                        audio_hash: achievement
+                            .audio_file
+                            .resolve(&self.audio_base_path)
+                            .as_ref()
+                            .map(|file| file.hash.clone()),
+                    })
+                    .collect(),
+            }
+            .into(),
+        );
     }
 }
 
@@ -511,7 +523,7 @@ fn calculate_manifest_hash<Metadata, Player, State, Trigger>(
                 .audio_file
                 .resolve(audio_base_path)
                 .as_ref()
-                .map(|file| (achievement.id, file.hash))
+                .map(|file| (achievement.id, file.hash.clone()))
         })
         .collect();
 
@@ -588,7 +600,7 @@ mod tests {
 
         let response = resp_rx.await.unwrap();
         match response {
-            ServerMessage::BloopAccepted { achievements } => {
+            ServerMessage::BloopAccepted(BloopAccepted { achievements }) => {
                 assert!(achievements.is_empty());
             }
             _ => panic!("Expected BloopAccepted response"),
@@ -633,7 +645,7 @@ mod tests {
 
         let response = resp_rx.await.unwrap();
         match response {
-            ServerMessage::BloopAccepted { achievements } => {
+            ServerMessage::BloopAccepted(BloopAccepted { achievements }) => {
                 assert!(achievements.is_empty());
             }
             _ => panic!("Expected BloopAccepted response"),

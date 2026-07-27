@@ -5,7 +5,7 @@ edition = "2024"
 authors = ["Ben Scholzen 'DASPRiD' <mail@dasprids.de>"]
 description = "Bloop server framework"
 license = "BSD-2-Clause"
-repository = "https://github.com/bloop-box/bloop-server-framework-rs"
+repository = "https://github.com/bloop-box/bloop-server-framework"
 
 [features]
 ## Enables better debug output for achievements; requires all your evaluators to implement `Debug`.
@@ -28,8 +28,8 @@ name = "simple"
 required-features = ["tokio-graceful-shutdown"]
 
 [dependencies]
+bloop-protocol = { version = "1", features = ["hex", "md5", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
-hex = "0.4.3"
 uuid = { version = "1.19", features = ["serde", "v4"] }
 serde = { version = "1.0", features = ["derive"] }
 md5 = "0.8.0"
@@ -42,8 +42,6 @@ rustls = "0.23.35"
 thiserror = "2.0"
 tracing = "0.1.43"
 argon2 = "0.5.3"
-bitmask-enum = "2.2"
-byteorder = "1.5"
 tempfile = "3.23"
 
 # Deps for tokio-graceful-shutdown feature
@@ -63,6 +61,7 @@ humantime-serde = "1.1.1"
 [dev-dependencies]
 anyhow = "1.0.98"
 bytes = "1.10.1"
+hex = "0.4.3"
 ntest = "0.9.3"
 tokio = { version = "1", features = ["full", "test-util"]}
 tokio-graceful-shutdown = "0.19.2"

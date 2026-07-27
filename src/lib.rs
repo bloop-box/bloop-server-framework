@@ -12,7 +12,8 @@ pub mod event;
 pub mod health_monitor;
 pub mod message;
 pub mod network;
-pub mod nfc_uid;
+pub use bloop_protocol;
+pub use bloop_protocol::nfc_uid;
 pub mod player;
 #[cfg(feature = "statistics")]
 pub mod statistics;

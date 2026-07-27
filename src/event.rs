@@ -21,10 +21,11 @@ pub enum Event {
     /// Emitted when the client intentionally disconnects from the system.
     ClientDisconnect { client_id: String, conn_id: usize },
 
-    /// The connection to a client was unexpectedly lost.
+    /// The connection to a client ended abnormally.
     ///
-    /// Unlike [`ClientDisconnect`], this event reflects an abrupt loss of
-    /// connection, such as a network failure or crash.
+    /// Unlike [`ClientDisconnect`], this event reflects any termination other
+    /// than a clean quit or idle timeout: a network failure, a protocol
+    /// violation, or a server-side error while handling a request.
     ClientConnectionLoss { client_id: String, conn_id: usize },
 
     /// The system has processed a bloop.
