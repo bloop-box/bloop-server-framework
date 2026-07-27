@@ -442,7 +442,7 @@ impl<T: HealthReportSender> HealthMonitor<T> {
             }
 
             let mut recent_events: Vec<_> = client.events.iter().take(2).collect();
-            recent_events.sort_by(|a, b| b.conn_id.cmp(&a.conn_id));
+            recent_events.sort_by_key(|event| std::cmp::Reverse(event.conn_id));
 
             let Some(latest_event) = recent_events.first() else {
                 continue;

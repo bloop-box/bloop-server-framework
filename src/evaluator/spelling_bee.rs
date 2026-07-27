@@ -304,7 +304,7 @@ mod tests {
     #[test]
     fn build_fails_if_word_too_long() {
         let client_map = ('a'..='z').map(|c| (c, "client")).collect();
-        let long_word: String = std::iter::repeat('a').take(1_000).collect();
+        let long_word = "a".repeat(1_000);
 
         let result = SpellingBeeEvaluator::new(&long_word, &client_map, Duration::from_secs(1));
         assert!(matches!(result, Err(Error::WordTooLong)));

@@ -522,7 +522,7 @@ mod tests {
         let bloop1 = create_mock_bloop(now);
         let bloop2 = create_mock_bloop(now + Duration::from_secs(10));
 
-        let bloops = vec![bloop1.clone(), bloop2.clone()];
+        let bloops = [bloop1.clone(), bloop2.clone()];
         let since = now + Duration::from_secs(5);
         let filtered: Vec<_> = bloops.iter().filter(bloops_since(since)).collect();
 
@@ -537,7 +537,7 @@ mod tests {
         let (player2, player2_id) = MockPlayer::builder().build();
         let bloop2 = Arc::new(Bloop::new(player2, "client-1", now));
 
-        let bloops = vec![bloop1.clone(), bloop2.clone()];
+        let bloops = [bloop1.clone(), bloop2.clone()];
         let filtered: Vec<_> = bloops
             .iter()
             .filter(bloops_for_player(player2_id))

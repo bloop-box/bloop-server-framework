@@ -33,20 +33,15 @@ use std::collections::hash_map::Entry;
 use std::time::Duration;
 
 /// Specifies how often or for how long a trigger should remain active.
-#[derive(Debug, Copy, Clone, Deserialize)]
+#[derive(Debug, Copy, Clone, Default, Deserialize)]
 pub enum TriggerOccurrence {
     /// The trigger can only be used once.
+    #[default]
     Once,
     /// The trigger can be used a specified number of times.
     Times(usize),
     /// The trigger remains active for the specified duration.
     Duration(Duration),
-}
-
-impl Default for TriggerOccurrence {
-    fn default() -> Self {
-        Self::Once
-    }
 }
 
 /// Defines the specification of a trigger, including its activation policy and type.
