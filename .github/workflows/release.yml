@@ -32,7 +32,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - run: cargo clippy --all-features
+      - run: cargo clippy --all-features --all-targets -- -D warnings
 
   test:
     runs-on: ubuntu-latest
