@@ -1,3 +1,26 @@
+# [2.0.0](https://github.com/bloop-box/bloop-server-framework/compare/v1.10.8...v2.0.0) (2026-07-27)
+
+
+### Features
+
+* implement wire protocol via the bloop-protocol crate ([e35d96f](https://github.com/bloop-box/bloop-server-framework/commit/e35d96f94cc5712ba72738f02e784cef072cc2f7))
+
+
+### BREAKING CHANGES
+
+* The wire format moved to the bloop-protocol crate.
+message::Message is removed; RawMessage replaces it. ClientMessage and
+ServerMessage are enums of standalone payload structs and take an
+extension set type parameter. AchievementRecord.audio_file_hash is
+renamed to audio_hash, Authentication.ip_addr to ip_address. DataHash
+is variable-length, no longer Copy, and loses into_tagged_bytes.
+network::Error drops UnknownRequest, gains Frame/Encode/
+MalformedMessage, and UnexpectedMessage now carries a RawMessage.
+Custom requests arrive typed via CustomRequestMessage<Req, Res> and
+must be answered with a CustomOutcome; replying None is no longer
+possible. Unknown opcodes no longer reach the custom channel. Custom
+message definitions require a direct bloop-protocol dependency.
+
 ## [1.10.8](https://github.com/bloop-box/bloop-server-framework/compare/v1.10.7...v1.10.8) (2026-02-21)
 
 
