@@ -6,6 +6,7 @@ authors = ["Ben Scholzen 'DASPRiD' <mail@dasprids.de>"]
 description = "Bloop server framework"
 license = "BSD-2-Clause"
 repository = "https://github.com/bloop-box/bloop-server-framework"
+exclude = ["/.github", "/.gitignore", "/.releaserc.yml", "/examples/cert.pem", "/examples/key.pem"]
 
 [features]
 ## Enables better debug output for achievements; requires all your evaluators to implement `Debug`.
